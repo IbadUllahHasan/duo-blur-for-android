@@ -33,7 +33,16 @@ object FrameProcessor {
         /** 0 = the glass hinges on a vertical edge (left/right), 1 = a horizontal one (top/bottom). */
         val hingeAxis: Float,
         /** -1 = hinge on the left/top edge, +1 = right/bottom. */
-        val hingeSide: Float
+        val hingeSide: Float,
+
+        /**
+         * -1..1, continuous (not axis-snapped like [hingeAxis]/[hingeSide]).
+         * The classic renderer's pivot sweeps by these directly, so it moves
+         * smoothly as tilt direction changes instead of jumping between four
+         * fixed points whenever pitch/roll trade off which one dominates.
+         */
+        val directionUp: Float,
+        val directionRight: Float
     )
 
     /**
@@ -102,10 +111,13 @@ object FrameProcessor {
         val dim = tunables.maxDim * intensity
         val edgeFadeAlpha = tunables.edgeFadeStrength.coerceIn(0f, 1f) * intensity
 
-        // Which screen edge the glass hinges on: whichever axis currently
-        // leans further, and which way. Uses the same pitchSign/sign as the
-        // rotation above so the shader hinges on the same edge the classic
-        // renderer pivots from, not an independently-guessed one.
+        // Which screen edge the ray-traced shader hinges on: whichever axis
+        // currently leans further, and which way — a discrete pick, since
+        // that model only supports one hinge edge at a time. The classic
+        // renderer doesn't use this; its pivot sweeps continuously off
+        // directionUp/directionRight below instead, which is what avoids the
+        // jump this discrete choice would otherwise cause when pitch and
+        // roll trade off which one dominates.
         val signedUp = pitchSign * tiltUpDeg
         val signedRight = sign * tiltRightDeg
         val pitchDominates = abs(signedUp) > abs(signedRight)
@@ -125,7 +137,9 @@ object FrameProcessor {
             edgeFadeAlpha = edgeFadeAlpha,
             foldTiltDeg = axisTiltDeg * intensity,
             hingeAxis = if (pitchDominates) 1f else 0f,
-            hingeSide = hingeSide
+            hingeSide = hingeSide,
+            directionUp = upward,
+            directionRight = rightward
         )
     }
 }

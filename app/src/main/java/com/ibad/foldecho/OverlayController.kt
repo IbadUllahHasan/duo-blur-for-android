@@ -27,6 +27,7 @@ import androidx.dynamicanimation.animation.DynamicAnimation
 import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import kotlin.math.hypot
+import kotlin.math.min
 
 /**
  * Owns the full-screen TYPE_APPLICATION_OVERLAY window showing the captured
@@ -257,17 +258,28 @@ class OverlayController(private val context: Context) {
         return dpi / MM_PER_INCH
     }
 
-    /** Same hinge resolution the shader uses (effect.hingeAxis/hingeSide), so both renderers pin the same edge. */
+    /**
+     * Sweeps continuously with tilt direction rather than snapping between
+     * four fixed edge points (which is what the earlier version did, keyed
+     * off the same discrete hingeAxis/hingeSide the shader uses) — that snap
+     * is what read as a slant/jitter glitch whenever pitch and roll traded
+     * off which one dominated.
+     *
+     * Offset is capped to the SMALLER of width/height on both axes, not each
+     * axis's own full extent: on a typical portrait phone height is roughly
+     * double width, so pivoting pitch all the way to the true top/bottom edge
+     * gave it about double roll's leverage arm from the pivot at the same
+     * tilt angle. cameraDistance is tuned against the (correctly-looking)
+     * left/right case, so the same value applied to that doubled arm read as
+     * pitch zooming in rather than receding. This cap keeps both axes at the
+     * same maximum leverage; left/right is unchanged since width was already
+     * the smaller dimension.
+     */
     private fun applyHingePivot(view: View, effect: FrameProcessor.Effect) {
         if (view.width <= 0 || view.height <= 0) return
-        val hingeIsFar = effect.hingeSide > 0f
-        if (effect.hingeAxis >= 0.5f) {
-            view.pivotX = view.width / 2f
-            view.pivotY = if (hingeIsFar) view.height.toFloat() else 0f
-        } else {
-            view.pivotX = if (hingeIsFar) view.width.toFloat() else 0f
-            view.pivotY = view.height / 2f
-        }
+        val maxOffset = min(view.width, view.height) / 2f
+        view.pivotX = view.width / 2f - effect.directionRight * maxOffset
+        view.pivotY = view.height / 2f - effect.directionUp * maxOffset
     }
 
     private fun releaseTransform(view: View) {
