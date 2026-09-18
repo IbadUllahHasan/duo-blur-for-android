@@ -146,7 +146,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
 
         if (active) {
             val effect = FrameProcessor.effectFor(deviationDeg, tiltUpDeg, tiltRightDeg, current)
-            main.post { overlay.applyEffect(effect) }
+            main.post { overlay.applyEffect(effect, current) }
         }
     }
 

@@ -235,7 +235,9 @@ private fun ControlPanel(
             readout = "${(tunables.perspectiveStrength * 100).roundToInt()}%",
             value = tunables.perspectiveStrength,
             range = 0f..1f,
-            help = "How much depth the tilt reveals (camera distance), not how far the frame leans."
+            help = "How much depth the tilt reveals (camera distance), not how far the frame leans.",
+            enabled = tunables.perspectiveEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(perspectiveEnabled = it)) }
         ) { onTunablesChange(tunables.copy(perspectiveStrength = it)) }
 
         TuningSlider(
@@ -243,7 +245,9 @@ private fun ControlPanel(
             readout = "${tunables.maxBlurPx.roundToInt()}px",
             value = tunables.maxBlurPx,
             range = 0f..80f,
-            help = "Peak blur radius at full tilt."
+            help = "Peak blur radius at full tilt.",
+            enabled = tunables.blurEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(blurEnabled = it)) }
         ) { onTunablesChange(tunables.copy(maxBlurPx = it)) }
 
         TuningSlider(
@@ -251,7 +255,9 @@ private fun ControlPanel(
             readout = "${(tunables.maxDim * 100).roundToInt()}%",
             value = tunables.maxDim,
             range = 0f..0.9f,
-            help = "How dark the frame goes at full tilt."
+            help = "How dark the frame goes at full tilt.",
+            enabled = tunables.dimEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(dimEnabled = it)) }
         ) { onTunablesChange(tunables.copy(maxDim = it)) }
 
         TuningSlider(
@@ -260,8 +266,42 @@ private fun ControlPanel(
             value = tunables.maxShrink,
             range = 0f..0.3f,
             help = "How much the frame shrinks at full tilt, paired with the lean — " +
-                "sells a plane receding into distance rather than a flat zoom."
+                "sells a plane receding into distance rather than a flat zoom.",
+            enabled = tunables.shrinkEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(shrinkEnabled = it)) }
         ) { onTunablesChange(tunables.copy(maxShrink = it)) }
+
+        TuningSlider(
+            label = "Edge Fade",
+            readout = "${(tunables.edgeFadeStrength * 100).roundToInt()}%",
+            value = tunables.edgeFadeStrength,
+            range = 0f..1f,
+            help = "Alpha gradient from opaque center to transparent edge, strength scaling with tilt.",
+            enabled = tunables.edgeFadeEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(edgeFadeEnabled = it)) }
+        ) { onTunablesChange(tunables.copy(edgeFadeStrength = it)) }
+
+        TuningSlider(
+            label = "Corner Radius",
+            readout = "${(tunables.cornerRadiusStrength * 100).roundToInt()}% · " +
+                "${(tunables.cornerRadiusStrength * tunables.cornerRadiusBaseDp).roundToInt()}dp",
+            value = tunables.cornerRadiusStrength,
+            range = 0f..1f,
+            help = "Fraction of this device's actual screen-corner radius " +
+                "(${tunables.cornerRadiusBaseDp.roundToInt()}dp detected). 100% matches the real corners.",
+            enabled = tunables.cornerRadiusEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(cornerRadiusEnabled = it)) }
+        ) { onTunablesChange(tunables.copy(cornerRadiusStrength = it)) }
+
+        TuningSlider(
+            label = "Motion Softness",
+            readout = "${(tunables.motionSoftness * 100).roundToInt()}%",
+            value = tunables.motionSoftness,
+            range = 0f..1f,
+            help = "Spring damping on the lean/recede motion. Low is a light settle; high overshoots and bounces.",
+            enabled = tunables.motionSoftnessEnabled,
+            onEnabledChange = { onTunablesChange(tunables.copy(motionSoftnessEnabled = it)) }
+        ) { onTunablesChange(tunables.copy(motionSoftness = it)) }
 
         Spacer(Modifier.height(8.dp))
         TuningToggle(
@@ -345,18 +385,31 @@ private fun TuningSlider(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     help: String,
+    enabled: Boolean = true,
+    onEnabledChange: ((Boolean) -> Unit)? = null,
     onChange: (Float) -> Unit
 ) {
+    val textAlpha = if (enabled) 1f else 0.4f
     Column(Modifier.padding(vertical = 6.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, fontSize = 14.sp, color = Color.White)
-            Text(readout, fontSize = 14.sp, color = Color(0xFF7DD3FC))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onEnabledChange != null) {
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onEnabledChange,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
+                Text(label, fontSize = 14.sp, color = Color.White.copy(alpha = textAlpha))
+            }
+            Text(readout, fontSize = 14.sp, color = Color(0xFF7DD3FC).copy(alpha = textAlpha))
         }
-        Slider(value = value, onValueChange = onChange, valueRange = range)
-        Text(help, fontSize = 11.sp, color = Color.White.copy(alpha = 0.45f))
+        Slider(value = value, onValueChange = onChange, valueRange = range, enabled = enabled)
+        Text(help, fontSize = 11.sp, color = Color.White.copy(alpha = 0.45f * textAlpha))
     }
 }
 

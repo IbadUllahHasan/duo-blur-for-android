@@ -54,7 +54,16 @@ it wants real-device testing:
 | Blur | 40px | Peak blur radius |
 | Dim | 55% | How dark it goes |
 | Recede | 10% | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
+| Edge Fade | 30% | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
+| Corner Radius | 100% | Fraction of *this device's* actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) — 100% matches the real corners exactly |
+| Motion Softness | 25% | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
 | Flip tilt direction | off | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
+
+Every slider above except Activation threshold and Full-tilt point has its
+own on/off switch next to it, so you can A/B an effect without losing the
+value you'd dialed in. Those two are excluded on purpose — they're what
+decides whether the feature ever activates at all, so there's no coherent
+"off" state for them short of disabling the whole feature.
 
 The effect releases at 60% of the activation threshold, so it can't flicker at
 the boundary. "Recalibrate" (in the app or on the notification) re-baselines

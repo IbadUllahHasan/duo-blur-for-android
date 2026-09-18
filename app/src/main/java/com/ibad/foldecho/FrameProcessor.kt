@@ -6,6 +6,12 @@ package com.ibad.foldecho
  * GPU-accelerated 3D transforms, where a perspective Matrix forces every draw
  * of a full-screen bitmap down Skia's software path — which is what made the
  * effect stutter.
+ *
+ * Corner radius and motion softness aren't computed here: corner radius is a
+ * static property of the card (it doesn't depend on tilt at all), and motion
+ * softness is about HOW a value is approached over time — a spring, driven by
+ * OverlayController — not a value in itself. Both are read straight off
+ * Tunables by OverlayController instead of flowing through this Effect.
  */
 object FrameProcessor {
 
@@ -16,7 +22,9 @@ object FrameProcessor {
         /** In dp — OverlayController converts to px against the view's own density. */
         val cameraDistanceDp: Float,
         val blurPx: Float,
-        val dim: Float
+        val dim: Float,
+        /** 0..1 alpha for the edge-fade overlay; scales with tilt magnitude just like [dim]. */
+        val edgeFadeAlpha: Float
     )
 
     /**
@@ -31,6 +39,9 @@ object FrameProcessor {
     /** Camera-distance range the "Perspective" slider (0..1 strength) maps into. Lower distance = more dramatic depth. */
     private const val MIN_CAMERA_DISTANCE_DP = 300f
     private const val MAX_CAMERA_DISTANCE_DP = 3000f
+
+    /** Android's own default camera distance (1280 * density, in px) expressed in dp — density cancels out, so this is what "Perspective" disabled falls back to. */
+    private const val NEUTRAL_CAMERA_DISTANCE_DP = 1280f
 
     fun effectFor(deviationDeg: Float, tiltUpDeg: Float, tiltRightDeg: Float, tunables: Tunables): Effect {
         val span = (tunables.fullTiltDeg - tunables.activateDeg).coerceAtLeast(1f)
@@ -49,24 +60,40 @@ object FrameProcessor {
         val rotationXDeg = -upward * swing
         val rotationYDeg = rightward * swing
 
-        val strength = tunables.perspectiveStrength.coerceIn(0f, 1f)
-        val cameraDistanceDp = MAX_CAMERA_DISTANCE_DP -
-            strength * (MAX_CAMERA_DISTANCE_DP - MIN_CAMERA_DISTANCE_DP)
+        val cameraDistanceDp = if (tunables.perspectiveEnabled) {
+            val strength = tunables.perspectiveStrength.coerceIn(0f, 1f)
+            MAX_CAMERA_DISTANCE_DP - strength * (MAX_CAMERA_DISTANCE_DP - MIN_CAMERA_DISTANCE_DP)
+        } else {
+            NEUTRAL_CAMERA_DISTANCE_DP
+        }
 
         // Driven by the same eased `intensity` as the rotation swing above,
         // so the two animate as one motion rather than drifting apart: the
         // frame leans AND recedes together, which is what sells "distant
         // fixed plane" instead of "flat zoom." The black behind it (the
         // overlay's own container background) does the rest.
-        val scale = 1f - tunables.maxShrink.coerceIn(0f, 0.9f) * intensity
+        val scale = if (tunables.shrinkEnabled) {
+            1f - tunables.maxShrink.coerceIn(0f, 0.9f) * intensity
+        } else {
+            1f
+        }
+
+        val blurPx = if (tunables.blurEnabled) tunables.maxBlurPx * intensity else 0f
+        val dim = if (tunables.dimEnabled) tunables.maxDim * intensity else 0f
+        val edgeFadeAlpha = if (tunables.edgeFadeEnabled) {
+            tunables.edgeFadeStrength.coerceIn(0f, 1f) * intensity
+        } else {
+            0f
+        }
 
         return Effect(
             rotationXDeg = rotationXDeg,
             rotationYDeg = rotationYDeg,
             scale = scale,
             cameraDistanceDp = cameraDistanceDp,
-            blurPx = tunables.maxBlurPx * intensity,
-            dim = tunables.maxDim * intensity
+            blurPx = blurPx,
+            dim = dim,
+            edgeFadeAlpha = edgeFadeAlpha
         )
     }
 }
