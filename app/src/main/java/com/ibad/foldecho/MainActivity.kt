@@ -1,12 +1,20 @@
 package com.ibad.foldecho
 
+import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.projection.MediaProjectionManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -28,6 +36,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
@@ -35,15 +44,59 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 class MainActivity : ComponentActivity() {
+    private lateinit var mediaProjectionManager: MediaProjectionManager
+    private val systemWideEnabled = mutableStateOf(false)
+
+    private val requestCapture = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) {
+            val intent = Intent(this, FoldEchoService::class.java).apply {
+                putExtra(FoldEchoService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(FoldEchoService.EXTRA_RESULT_DATA, data)
+            }
+            ContextCompat.startForegroundService(this, intent)
+            systemWideEnabled.value = true
+        }
+    }
+
+    private val requestNotificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        mediaProjectionManager = getSystemService(MediaProjectionManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-                    FoldEchoScreen()
+                    Column(Modifier.fillMaxSize()) {
+                        Box(Modifier.weight(1f)) {
+                            FoldEchoScreen()
+                        }
+                        SystemWideSection(
+                            enabled = systemWideEnabled.value,
+                            onToggle = ::toggleSystemWide
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun toggleSystemWide() {
+        if (systemWideEnabled.value) {
+            startService(Intent(this, FoldEchoService::class.java).setAction(FoldEchoService.ACTION_STOP))
+            systemWideEnabled.value = false
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            return
+        }
+        requestCapture.launch(mediaProjectionManager.createScreenCaptureIntent())
     }
 }
 
@@ -179,6 +232,41 @@ private fun ScreenLayer(
         contentAlignment = Alignment.Center
     ) {
         Text(label, color = Color.White.copy(alpha = 0.9f), fontSize = 28.sp)
+    }
+}
+
+/**
+ * The real, system-wide, MediaProjection-backed effect: keeping this on
+ * shows the system's screen-recording indicator for as long as it's
+ * enabled (not just during a transition) — that trade-off is accepted
+ * per the spec, in exchange for not re-prompting for consent on every tilt.
+ */
+@Composable
+private fun SystemWideSection(enabled: Boolean, onToggle: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF111111))
+            .padding(16.dp)
+    ) {
+        Text(
+            "System-wide FoldEcho (tilt-driven, real screen capture)",
+            color = Color.White,
+            fontSize = 13.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (enabled)
+                "Active — tilt the phone anywhere on the device to trigger it. The screen-recording indicator will stay on the whole time this is enabled."
+            else
+                "Off. Enabling asks for one-time screen-capture consent, plus the \"display over other apps\" permission.",
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 11.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onToggle) {
+            Text(if (enabled) "Disable" else "Enable System-Wide FoldEcho")
+        }
     }
 }
 
