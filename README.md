@@ -59,6 +59,11 @@ it wants real-device testing:
 | Motion Softness | 25% | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
 | Flip tilt direction | off | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
 
+"Reset to defaults," next to the "Tuning" header, writes every value above
+back to its starting point in one tap — including re-detecting the device's
+actual corner radius, rather than restoring whatever radius happened to be
+resolved the first time the app ran.
+
 Every slider above except Activation threshold and Full-tilt point has its
 own on/off switch next to it, so you can A/B an effect without losing the
 value you'd dialed in. Those two are excluded on purpose — they're what

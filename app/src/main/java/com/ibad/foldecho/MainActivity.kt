@@ -37,6 +37,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -104,7 +105,8 @@ class MainActivity : ComponentActivity() {
                         onToggle = ::toggleService,
                         onRecalibrate = ::recalibrate,
                         onGrantOverlay = ::requestOverlayPermission,
-                        onTunablesChange = ::updateTunables
+                        onTunablesChange = ::updateTunables,
+                        onResetTunables = ::resetTunables
                     )
                 }
             }
@@ -142,6 +144,10 @@ class MainActivity : ComponentActivity() {
         tunables = updated
         FoldEchoSettings.save(this, updated)
     }
+
+    private fun resetTunables() {
+        tunables = FoldEchoSettings.reset(this)
+    }
 }
 
 private val FoldEchoColors = darkColorScheme(
@@ -161,7 +167,8 @@ private fun ControlPanel(
     onToggle: () -> Unit,
     onRecalibrate: () -> Unit,
     onGrantOverlay: () -> Unit,
-    onTunablesChange: (Tunables) -> Unit
+    onTunablesChange: (Tunables) -> Unit,
+    onResetTunables: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -206,7 +213,14 @@ private fun ControlPanel(
         }
 
         Spacer(Modifier.height(28.dp))
-        Text("Tuning", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Color.White)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Tuning", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            TextButton(onClick = onResetTunables) { Text("Reset to defaults") }
+        }
         Text(
             "Adjustments apply immediately, even while the effect is running.",
             fontSize = 12.sp,

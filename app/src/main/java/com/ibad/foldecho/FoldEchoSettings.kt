@@ -128,6 +128,13 @@ object FoldEchoSettings {
             .apply()
     }
 
+    /** Writes every tunable back to its class default (device-detected corner radius included) and returns it, so the caller can update its in-memory state without a separate load(). */
+    fun reset(context: Context): Tunables {
+        val defaults = Tunables(cornerRadiusBaseDp = defaultCornerRadiusDp(context))
+        save(context, defaults)
+        return defaults
+    }
+
     /**
      * DisplayManager (not Context.getDisplay()) because this runs from
      * FoldEchoService as well as MainActivity — a plain Service context isn't

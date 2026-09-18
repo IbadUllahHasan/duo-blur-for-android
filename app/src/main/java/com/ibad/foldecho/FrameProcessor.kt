@@ -53,11 +53,14 @@ object FrameProcessor {
         val rightward = sign * (tiltRightDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
         val swing = MAX_ROTATION_DEG * intensity
 
-        // Inverted from the raw tilt direction on purpose: the content is
-        // anchored in a fixed plane and the phone is a moving viewport onto
-        // it, not a rigid card taped to the screen, so the frame should
-        // counter-rotate against the phone's own tilt.
-        val rotationXDeg = -upward * swing
+        // Both axes counter-rotate against the raw tilt direction, on
+        // purpose and identically: the content is anchored in a fixed plane
+        // and the phone is a moving viewport onto it, not a rigid card taped
+        // to the screen. Tilting left reveals black on the right; tilting up
+        // should reveal black on the bottom the same way — so pitch and roll
+        // need the same sign convention here, not one negated relative to
+        // the other.
+        val rotationXDeg = upward * swing
         val rotationYDeg = rightward * swing
 
         val cameraDistanceDp = if (tunables.perspectiveEnabled) {
