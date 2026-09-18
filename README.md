@@ -1,117 +1,89 @@
-# FoldEcho
+# FoldEcho — iPhone Fold transition on any Android phone
 
-A recreation of the *look* of the iPhone Duo's fold transition — captured
-screen content that leans, blurs and dims — on a regular (non-foldable)
-Android phone, driven by device tilt instead of a hinge angle.
+*4 screenshots below show the effect in action.*
 
-## What it actually does
-Enable it, tilt the phone, and whatever is on screen freezes into a warped,
-blurred, dimmed snapshot until you bring the phone back to neutral. It works
-over any app, because it captures real pixels through `MediaProjection`
-rather than blurring in place.
-
-The app itself is a control panel: status, a live readout of how far from
-neutral the phone currently is, and sliders for every parameter that only
-real on-device testing can settle.
+## What this is
+FoldEcho recreates the look of the iPhone Fold/Duo's fold-blur transition —
+captured screen content that leans, blurs and dims as if hinging on an edge —
+on a regular (non-foldable) Android phone, using device tilt as the trigger
+instead of a real hinge sensor. It has two rendering modes: a ray-traced
+geometric fold (more accurate, needs Android 13+) and a classic lean/scale
+transform (fast, works back to Android 12) as a fallback.
 
 ## How it works
-- **`FoldEchoService`** — foreground service holding the pipeline together.
-  Keeps one `MediaProjection` alive for as long as the feature is enabled, so
-  Android doesn't re-prompt for consent on every gesture.
-- **`TiltTracker`** — `TYPE_ROTATION_VECTOR`, measuring the angle between the
-  screen's normal now and at the calibrated neutral pose. Any direction counts
-  the same, and there's no ±180° wrap to jump on. Runs on a background thread.
-- **`CaptureSession`** — the single `VirtualDisplay` this projection is allowed
-  to create, built once at startup and parked between gestures by detaching its
-  surface. A gesture grabs exactly one frame and freezes it; re-reading the
-  screen mid-gesture would capture the overlay itself and feed it back.
-- **`OverlayController`** — hardware-accelerated `TYPE_APPLICATION_OVERLAY`
-  window, hosting two interchangeable renderers (below). Blur comes from
-  `RenderEffect`, dimming from a scrim — all GPU-side, none of it re-drawing
-  the bitmap per frame.
+Enable it, tilt the phone, and whatever's on screen freezes into a leaning,
+graded-blur snapshot until you tilt back to neutral — over any app, because
+it captures real pixels via `MediaProjection` rather than blurring in place.
+The pipeline is: `TYPE_ROTATION_VECTOR` sensor reading → one frozen frame
+captured per gesture → GPU rendering, either an AGSL `RuntimeShader` doing a
+real per-pixel ray trace, or View 3D transforms as a fallback → blur that
+intensifies away from the hinge edge in both modes. Every parameter below is
+tunable live, in-app, while the effect is running — nothing here needed a
+rebuild to adjust. Nothing about this modifies the system: it draws an
+overlay window while the app's foreground service is running, and stops
+touching anything the moment you disable it.
 
-## The two renderers
-**Ray-traced fold** (default, Android 13+) — an AGSL `RuntimeShader` in
-`res/raw/duo_fold.agsl`, ported from the model in
-[Atomicx7/Duo-animation](https://github.com/Atomicx7/Duo-animation) and
-generalised from its left/right hinge to all four screen edges. The captured
-frame is a fixed plane in world space; the eye sits still on that plane's
-normal; the glass rotates around whichever screen edge the dominant tilt axis
-hinges on. Per pixel it casts a ray from the eye through the glass onto the
-plane, blurring and darkening in proportion to the glass-to-plane gap, and
-returning black where the ray misses the plane entirely.
+## Known limitations
+- Requires Android 12 (API 31) or newer.
+- Shows the system's screen-recording indicator for as long as the feature
+  is enabled, not just during a tilt — the cost of keeping one capture
+  session open instead of re-prompting for consent on every gesture.
+- Apps that set `FLAG_SECURE` (banking, Netflix, password managers) capture
+  as black, not blurred — an Android-wide protection with no workaround from
+  here.
+- Ray-traced mode needs API 33+ for AGSL `RuntimeShader` support, and even
+  there it can fail to compile on a given device's GPU driver; either case
+  falls back to the classic lean/scale renderer automatically.
+- Sensor calibration ("Recalibrate," in the app or on the notification) is
+  needed on first launch, and again any time holding the phone at an angle
+  becomes your new "neutral" pose — the effect measures deviation from
+  whatever pose was neutral when last calibrated, not absolute level.
 
-**Lean/scale transform** (fallback) — View `rotationX`/`rotationY` plus
-`cameraDistance` and a coupled scale-down, sprung via `SpringAnimation`.
+## Screenshots
+Add these under `screenshots/` in the repo with the filenames below —
+they're referenced but not included in this commit.
 
-minSdk stays at **31**, so the shader path is gated at runtime three ways: the
-device must be on API 33+, the AGSL must actually compile, and the toggle must
-be on. Any of those failing drops cleanly back to the transform renderer —
-which is why that renderer is kept rather than deleted. The compile check
-isn't hypothetical; the original's author documents the shader silently
-failing on some devices, which is also why it sticks to minimal AGSL
-constructs (no `break`/`continue`, no bool locals, no helper functions).
+| | |
+|---|---|
+| ![Classic mode, tilted left](screenshots/classic-tilt-left.png) | ![Ray-traced mode, tilted right](screenshots/raytraced-tilt-right.png) |
+| Classic mode, tilted left — the near edge stays sharp, the far edge blurs. | Ray-traced mode, tilted right — same graduated effect, a different rendering model underneath. |
+| ![Control panel, Tuning section](screenshots/control-panel-tuning.png) | ![Effect over real app content](screenshots/real-app-content.png) |
+| Control panel, Tuning section — mode selector and live parameters. | The effect applied over real app content (Messages, Home, etc.), not a demo screen. |
 
-The frame leans *against* the phone's tilt, not with it — the content is
-meant to read as a fixed plane behind a moving viewport (like looking through
-a tilting window), not a rigid card taped to the screen. Because which sign
-counts as "against" depends on how a given device's sensors report axes,
-there's a "Flip tilt direction" switch in the app rather than a constant
-you'd have to find and edit per phone.
+## Install
+**Option A — GitHub Releases.** Download the latest APK from this repo's
+Releases page, then sideload it — tapping the downloaded file will prompt
+for the "install unknown apps" permission for whichever app opened it;
+allow it, then install.
 
-While the effect is up it blocks touches on purpose: you're looking at a
-snapshot, so tapping "through" it would hit things you can't see. If tilt
-somehow never returns to neutral, the overlay gives up after 8 seconds rather
-than stranding you.
+**Option B — Build from source via GitHub Actions**, no local Android
+Studio required:
+1. Go to the **Actions** tab → "Build Debug APK" → "Run workflow" (or push
+   to `main`, which triggers it automatically).
+2. Once it finishes, open the run and download `FoldEcho-debug-apk` from
+   **Artifacts** (a zip containing `app-debug.apk`).
+3. Sideload it the same way as Option A.
+
+Local Android Studio also works (`Open` this folder, let Gradle sync, run ▶),
+if you'd rather build and iterate on-device directly.
 
 ## Tuning
-Everything below is adjustable from the app while the service runs, and all of
-it wants real-device testing:
+Once installed, open the app. "Enable" starts it — you'll be asked for the
+"display over other apps" permission and then the one-time screen-capture
+consent dialog. The Tuning section is where every parameter above lives:
+activation threshold, blur intensity, perspective depth, and everything else
+that only real on-device testing can settle, adjustable in real time while
+the effect is running. Hit "Recalibrate" to reset the neutral pose to
+however you're currently holding the phone.
 
-| Control | Default | What it does |
-| --- | --- | --- |
-| Activation threshold | 12° | How far from neutral before the effect starts |
-| Full-tilt point | 30° | Deviation at which the effect hits full strength |
-| Perspective | 40% | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
-| Blur | 40px | Peak blur radius |
-| Dim | 55% | How dark it goes |
-| Recede | 10% | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
-| Edge Fade | 30% | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
-| Corner Radius | 100% | Fraction of *this device's* actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) — 100% matches the real corners exactly |
-| Motion Softness | 25% | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
-| Use ray-traced fold | on | Ray-traced shader vs. the lean/scale transform |
-| View distance | 300mm | How far the eye sits from the content plane — closer is a more extreme perspective |
-| Blur per mm | 1.5px | Blur radius gained per mm of glass-to-plane gap |
-| Max blur radius | 48px | Ceiling on that radius |
-| Darken per mm | 2.0% | Light lost per mm of that gap |
-| Max darken | 80% | Ceiling on that loss |
-| Flip tilt direction | off | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
-
-Perspective, Recede and Motion Softness drive the lean/scale renderer only —
-with the ray-traced fold on, its own projection replaces them. Blur still
-applies either way: it runs first and the fold samples the blurred content.
-The five millimetre-based fold parameters are converted to the shader's pixel
-units against the display's physical density (`xdpi`), so they mean real
-physical distance rather than pixels.
-
-"Reset to defaults," next to the "Tuning" header, writes every value above
-back to its starting point in one tap — including re-detecting the device's
-actual corner radius, rather than restoring whatever radius happened to be
-resolved the first time the app ran.
-
-Every slider above except Activation threshold and Full-tilt point has its
-own on/off switch next to it, so you can A/B an effect without losing the
-value you'd dialed in. Those two are excluded on purpose — they're what
-decides whether the feature ever activates at all, so there's no coherent
-"off" state for them short of disabling the whole feature.
-
-The effect releases at 60% of the activation threshold, so it can't flicker at
-the boundary. "Recalibrate" (in the app or on the notification) re-baselines
-neutral to however you're holding the phone right now.
-
-If the frame leans the *wrong* way when you tilt, use the "Flip tilt
-direction" switch — don't edit code for this, it's exactly what the switch is
-for.
+## Credits
+This project ports the geometric ray-trace fold model from
+[Atomicx7/Duo-animation](https://github.com/Atomicx7/Duo-animation) (itself
+a Kotlin/AGSL port of elijah-semyonov's `DuoLikeAnimation`, originally
+SwiftUI/Metal), generalized from that project's single left/right hinge to
+all four screen edges. The classic lean/scale fallback is an independent
+approximation built for this project, for older-device compatibility rather
+than ported from anywhere.
 
 ## Things that were investigated and can't be done
 Recording these so they don't get re-attempted:
@@ -122,66 +94,35 @@ Recording these so they don't get re-attempted:
   security decision with no app-level workaround. The bars already render
   *above* the overlay for the same reason. Doing this would need the app to
   be the foreground Activity (which it isn't — it's an overlay over other
-  apps), or the signature-level `STATUS_BAR` permission, or root.
+  apps), the signature-level `STATUS_BAR` permission, or root.
+- **Continuous live capture behind the fold**, instead of one frozen frame
+  per gesture. The single-frame path avoids capturing itself by grabbing its
+  frame *before* the overlay is shown, then parking the `VirtualDisplay`.
+  That doesn't extend to continuous capture: while the overlay is up it's
+  part of the screen, so it lands in the next frame and compounds. There's
+  no public API to exclude one window from a `MediaProjection` mirror of the
+  same display.
 
-- **Continuous live capture behind the fold.** The single-frame path avoids
-  capturing itself by grabbing its frame *before* the overlay is shown, then
-  parking the VirtualDisplay. That trick doesn't extend to continuous
-  capture: while the overlay is up it is part of the screen, so it lands in
-  the next frame and compounds. There's no public API to exclude one window
-  from a MediaProjection mirror of the same display. `FLAG_SECURE` on the
-  overlay blanks it in the capture, but since the overlay covers the screen
-  the capture becomes entirely black. Hiding the overlay per captured frame
-  works but strobes the real screen at the capture rate. Android 14's
-  single-app capture would exclude the overlay, but the user picks the app at
-  consent time and it doesn't follow app switches, which defeats a
-  system-wide effect.
+## Everything else that's tunable
+| Control | Default | Applies to | What it does |
+| --- | --- | --- | --- |
+| Activation threshold | 12° | Both | How far from neutral before the effect starts |
+| Full-tilt point | 30° | Both | Deviation at which the effect hits full strength |
+| Perspective | 40% | Classic | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
+| Recede | 10% | Classic | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
+| Motion Softness | 25% | Classic | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
+| View distance | 300mm | Ray-traced | How far the eye sits from the content plane — closer is a more extreme perspective |
+| Blur per mm | 1.5px | Ray-traced | Blur radius gained per mm of glass-to-plane gap |
+| Max blur radius | 48px | Ray-traced | Ceiling on that radius |
+| Darken per mm | 2.0% | Ray-traced | Light lost per mm of that gap |
+| Max darken | 80% | Ray-traced | Ceiling on that loss |
+| Blur | 40px | Shared | Peak blur radius, graded from none at the hinge edge to full strength at the far edge in both modes |
+| Dim | 55% | Shared | How dark the frame goes at full tilt |
+| Edge Fade | 30% | Shared | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
+| Corner Radius | 100% | Shared | Fraction of this device's actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) |
+| Flip tilt direction | off | Both | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
 
-## Known constraints
-- The system's screen-recording indicator stays visible the whole time the
-  feature is enabled, not just during a tilt. That's the price of holding one
-  capture session open instead of re-prompting per gesture.
-- Apps that set `FLAG_SECURE` (banking, password managers, DRM video) capture
-  as black — an Android-wide protection, not a bug to fix here. The effect
-  skips the overlay entirely if no frame arrives.
-- Capture plus GPU work costs battery. The `VirtualDisplay` is parked whenever
-  the effect isn't running, so the cost is per-gesture rather than constant.
-- `MediaProjection`/`VirtualDisplay` behavior varies by OEM. Expect to tune
-  against your actual phone.
-- Personal sideload. Play Store distribution would bring `MediaProjection`
-  disclosure requirements with it.
-
-## Requirements
-- Android 12 (API 31) or newer
-- A GitHub account if you want the cloud build
-
-## Option A — Cloud build via GitHub Actions (no local install)
-`.github/workflows/build.yml` builds the APK on GitHub's servers on every push
-to `main`, or on demand.
-
-1. Go to the **Actions** tab → "Build Debug APK" → "Run workflow" (or just push
-   to `main`).
-2. Wait for the green checkmark (a couple of minutes).
-3. Open the completed run, scroll to **Artifacts**, download
-   `FoldEcho-debug-apk` (a zip containing `app-debug.apk`).
-4. Get that APK onto your phone (email, Drive, etc.) and tap it. Android will
-   ask permission to "install unknown apps" for whichever app opened the file —
-   allow it, then install.
-
-No developer mode, no USB debugging, no cable needed for this path.
-
-## Option B — Local Android Studio
-1. Open this folder in Android Studio.
-2. If it says the Gradle wrapper is missing, let it generate one — this
-   skeleton doesn't ship the wrapper jar.
-3. Let Gradle sync (needs Google's Maven + Maven Central).
-4. Run ▶ on your device.
-
-## First run
-1. Tap **Enable**.
-2. Grant "display over other apps" if prompted, then tap Enable again.
-3. Accept the screen-capture consent dialog.
-4. Hold the phone the way you normally would, then tilt.
-
-If it triggers too eagerly or not enough, drag the activation threshold while
-watching the live tilt readout — it shows exactly what the sensor sees.
+"Reset to defaults," next to the Tuning header, writes every value above
+back to its starting point in one tap, including re-detecting the device's
+actual corner radius rather than restoring whatever radius happened to be
+resolved the first time the app ran.

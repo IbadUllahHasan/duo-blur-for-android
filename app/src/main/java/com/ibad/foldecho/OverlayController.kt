@@ -1,9 +1,15 @@
 package com.ibad.foldecho
 
 import android.content.Context
+import android.graphics.BlendMode
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.LinearGradient
 import android.graphics.Outline
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RenderEffect
 import android.graphics.Shader
@@ -77,6 +83,9 @@ class OverlayController(private val context: Context) {
 
     private var frameFitChecked = false
 
+    /** A no-op ColorFilter, used only as a "pass the content through unchanged" leaf in the graded-blur RenderEffect tree below. */
+    private val identityColorFilter = ColorMatrixColorFilter(ColorMatrix())
+
     private var cornerRadiusPx = 0f
     private val cardOutlineProvider = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
@@ -94,22 +103,36 @@ class OverlayController(private val context: Context) {
         val imageView = image
         val density = context.resources.displayMetrics.density
 
-        val blur = if (effect.blurPx >= 1f) {
+        val fold = imageView?.let { foldRenderEffect(it, effect, tunables) }
+        // Under the shader, blur stays a flat pre-pass — the ray trace already
+        // grades its own blur spatially, so grading it twice would double up.
+        // For the classic renderer, blur is graded here instead: minimal at
+        // the hinge, full strength at the far edge, matching what the shader
+        // does per-pixel via a much cheaper trick — the peak-radius blur
+        // stays a single GPU pass either way, only the mask changes.
+        val blur = if (effect.blurPx < 1f) {
+            null
+        } else if (fold != null) {
             RenderEffect.createBlurEffect(effect.blurPx, effect.blurPx, Shader.TileMode.CLAMP)
         } else {
-            null
+            imageView?.let { gradedBlurEffect(it, effect) }
         }
-        val fold = imageView?.let { foldRenderEffect(it, effect, tunables) }
+
+        // The hinge edge shouldn't move: rotation and the coupled scale-down
+        // both pivot from wherever the fold resolves its hinge to, the same
+        // edge the shader hinges on. Android's default pivot is the view's
+        // own center, which is what let both edges drift before this.
+        applyHingePivot(cardView, effect)
 
         if (fold != null) {
             // The shader ray-traces the geometry itself, so the card's own
             // lean and scale would double up on it — hold it flat instead.
             releaseTransform(cardView)
         } else {
-            applyMotion(cardView, DynamicAnimation.ROTATION_X, rotationXSpring, effect.rotationXDeg, tunables)
-            applyMotion(cardView, DynamicAnimation.ROTATION_Y, rotationYSpring, effect.rotationYDeg, tunables)
-            applyMotion(cardView, DynamicAnimation.SCALE_X, scaleXSpring, effect.scale, tunables)
-            applyMotion(cardView, DynamicAnimation.SCALE_Y, scaleYSpring, effect.scale, tunables)
+            applyMotion(rotationXSpring, effect.rotationXDeg, tunables)
+            applyMotion(rotationYSpring, effect.rotationYDeg, tunables)
+            applyMotion(scaleXSpring, effect.scale, tunables)
+            applyMotion(scaleYSpring, effect.scale, tunables)
         }
 
         // Recomputed every call (not just once at attach) so the "Perspective"
@@ -128,15 +151,57 @@ class OverlayController(private val context: Context) {
         scrim?.alpha = effect.dim
         edgeFade?.alpha = effect.edgeFadeAlpha
 
-        val targetRadiusPx = if (tunables.cornerRadiusEnabled) {
-            tunables.cornerRadiusStrength.coerceIn(0f, 1f) * tunables.cornerRadiusBaseDp * density
-        } else {
-            0f
-        }
+        val targetRadiusPx = tunables.cornerRadiusStrength.coerceIn(0f, 1f) * tunables.cornerRadiusBaseDp * density
         if (targetRadiusPx != cornerRadiusPx) {
             cornerRadiusPx = targetRadiusPx
             cardView.invalidateOutline()
         }
+    }
+
+    /**
+     * Peak-radius blur, masked to fade in from 0 at the hinge to full
+     * strength at the far edge, then blended back over the sharp original —
+     * all as one RenderEffect tree, so it's a GPU composite recomputed live
+     * per tilt update, not a bitmap re-rendered on the CPU every frame. The
+     * mask itself is a tiny cached ALPHA_8 bitmap, rebuilt only when the
+     * card's size or which edge is hinging actually changes.
+     */
+    private fun gradedBlurEffect(imageView: ImageView, effect: FrameProcessor.Effect): RenderEffect? {
+        if (imageView.width <= 0 || imageView.height <= 0) return null
+        val mask = blurMaskFor(imageView.width, imageView.height, effect.hingeAxis, effect.hingeSide)
+
+        val blurred = RenderEffect.createBlurEffect(effect.blurPx, effect.blurPx, Shader.TileMode.CLAMP)
+        val maskedBlur = RenderEffect.createBlendModeEffect(
+            blurred, RenderEffect.createBitmapEffect(mask), BlendMode.DST_IN
+        )
+        val sharp = RenderEffect.createColorFilterEffect(identityColorFilter)
+        return RenderEffect.createBlendModeEffect(sharp, maskedBlur, BlendMode.SRC_OVER)
+    }
+
+    private var blurMask: Bitmap? = null
+    private var blurMaskKey = 0L
+
+    private fun blurMaskFor(width: Int, height: Int, hingeAxis: Float, hingeSide: Float): Bitmap {
+        val hingeCode = (if (hingeAxis >= 0.5f) 2 else 0) + (if (hingeSide > 0f) 1 else 0)
+        val key = (width.toLong() shl 34) or (height.toLong() shl 4) or hingeCode.toLong()
+        blurMask?.let { if (key == blurMaskKey) return it }
+
+        val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
+        val hingeIsFar = hingeSide > 0f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = if (hingeAxis >= 0.5f) {
+                val (startY, endY) = if (hingeIsFar) height.toFloat() to 0f else 0f to height.toFloat()
+                LinearGradient(0f, startY, 0f, endY, Color.TRANSPARENT, Color.BLACK, Shader.TileMode.CLAMP)
+            } else {
+                val (startX, endX) = if (hingeIsFar) width.toFloat() to 0f else 0f to width.toFloat()
+                LinearGradient(startX, 0f, endX, 0f, Color.TRANSPARENT, Color.BLACK, Shader.TileMode.CLAMP)
+            }
+        }
+        Canvas(mask).drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+
+        blurMask = mask
+        blurMaskKey = key
+        return mask
     }
 
     /** Null whenever the ray-traced path can't run — no shader, switched off, or the view not laid out yet — which is the caller's cue to fall back. */
@@ -192,6 +257,19 @@ class OverlayController(private val context: Context) {
         return dpi / MM_PER_INCH
     }
 
+    /** Same hinge resolution the shader uses (effect.hingeAxis/hingeSide), so both renderers pin the same edge. */
+    private fun applyHingePivot(view: View, effect: FrameProcessor.Effect) {
+        if (view.width <= 0 || view.height <= 0) return
+        val hingeIsFar = effect.hingeSide > 0f
+        if (effect.hingeAxis >= 0.5f) {
+            view.pivotX = view.width / 2f
+            view.pivotY = if (hingeIsFar) view.height.toFloat() else 0f
+        } else {
+            view.pivotX = if (hingeIsFar) view.width.toFloat() else 0f
+            view.pivotY = view.height / 2f
+        }
+    }
+
     private fun releaseTransform(view: View) {
         rotationXSpring?.cancel()
         rotationYSpring?.cancel()
@@ -203,20 +281,9 @@ class OverlayController(private val context: Context) {
         view.scaleY = 1f
     }
 
-    /** Drives [target] onto [property] of [view] via [spring] — or, if motion softness is off, sets it directly and cancels any animation in flight. */
-    private fun applyMotion(
-        view: View,
-        property: DynamicAnimation.ViewProperty,
-        spring: SpringAnimation?,
-        target: Float,
-        tunables: Tunables
-    ) {
+    /** Drives [target] through [spring], damping set from Motion Softness (0 is the cleanest settle the spring allows, not "off" — there's no disable state now, only how soft). */
+    private fun applyMotion(spring: SpringAnimation?, target: Float, tunables: Tunables) {
         if (spring == null) return
-        if (!tunables.motionSoftnessEnabled) {
-            spring.cancel()
-            property.setValue(view, target)
-            return
-        }
         val softness = tunables.motionSoftness.coerceIn(0f, 1f)
         spring.spring.stiffness = springStiffness
         spring.spring.dampingRatio = maxDampingRatio - softness * (maxDampingRatio - minDampingRatio)
@@ -241,6 +308,8 @@ class OverlayController(private val context: Context) {
         scaleYSpring = null
         cornerRadiusPx = 0f
         frameFitChecked = false
+        blurMask = null
+        blurMaskKey = 0L
     }
 
     private fun attach() {
