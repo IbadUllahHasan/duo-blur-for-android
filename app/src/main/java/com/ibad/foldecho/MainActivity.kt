@@ -254,6 +254,15 @@ private fun ControlPanel(
             help = "How dark the frame goes at full tilt."
         ) { onTunablesChange(tunables.copy(maxDim = it)) }
 
+        TuningSlider(
+            label = "Recede",
+            readout = "${(tunables.maxShrink * 100).roundToInt()}%",
+            value = tunables.maxShrink,
+            range = 0f..0.3f,
+            help = "How much the frame shrinks at full tilt, paired with the lean — " +
+                "sells a plane receding into distance rather than a flat zoom."
+        ) { onTunablesChange(tunables.copy(maxShrink = it)) }
+
         Spacer(Modifier.height(8.dp))
         TuningToggle(
             label = "Flip tilt direction",

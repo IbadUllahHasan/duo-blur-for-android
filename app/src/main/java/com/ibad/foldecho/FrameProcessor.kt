@@ -19,9 +19,6 @@ object FrameProcessor {
         val dim: Float
     )
 
-    /** Scale up slightly so the edges revealed by the 3D rotation stay covered. */
-    private const val MAX_OVERSCAN = 0.05f
-
     /**
      * The rotation swing itself is fixed and modest. Depth reads through
      * camera distance — how close the virtual eye is — not through how far
@@ -56,10 +53,17 @@ object FrameProcessor {
         val cameraDistanceDp = MAX_CAMERA_DISTANCE_DP -
             strength * (MAX_CAMERA_DISTANCE_DP - MIN_CAMERA_DISTANCE_DP)
 
+        // Driven by the same eased `intensity` as the rotation swing above,
+        // so the two animate as one motion rather than drifting apart: the
+        // frame leans AND recedes together, which is what sells "distant
+        // fixed plane" instead of "flat zoom." The black behind it (the
+        // overlay's own container background) does the rest.
+        val scale = 1f - tunables.maxShrink.coerceIn(0f, 0.9f) * intensity
+
         return Effect(
             rotationXDeg = rotationXDeg,
             rotationYDeg = rotationYDeg,
-            scale = 1f + MAX_OVERSCAN * intensity,
+            scale = scale,
             cameraDistanceDp = cameraDistanceDp,
             blurPx = tunables.maxBlurPx * intensity,
             dim = tunables.maxDim * intensity

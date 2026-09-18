@@ -53,6 +53,7 @@ it wants real-device testing:
 | Perspective | 40% | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
 | Blur | 40px | Peak blur radius |
 | Dim | 55% | How dark it goes |
+| Recede | 10% | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
 | Flip tilt direction | off | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
 
 The effect releases at 60% of the activation threshold, so it can't flicker at
