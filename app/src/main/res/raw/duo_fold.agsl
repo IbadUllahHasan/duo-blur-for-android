@@ -68,12 +68,21 @@ half4 main(float2 fragCoord) {
 
     float2 eye = size * 0.5;
 
+    // Hinging on a long edge lifts the far edge proportionally further, so on
+    // a tall phone a top/bottom fold would magnify roughly three times as hard
+    // as a left/right one at the same angle — the content ballooning sideways
+    // rather than folding. Scale the eye back with the hinge axis so both
+    // edges fold with the same strength, instead of letting screen shape
+    // decide it. The rotation itself is untouched; only the eye moves.
+    float shortEdge = max(min(size.x, size.y), 1.0);
+    float eyeDist = eyeDistancePx * (extent / shortEdge);
+
     // Ray eye -> glass pixel, continued to the content plane at z = 0.
-    float depth = eyeDistancePx - gap;
+    float depth = eyeDist - gap;
     if (depth <= 1e-3) {
         return half4(0.0, 0.0, 0.0, 1.0);
     }
-    float2 hit = eye + (glass - eye) * (eyeDistancePx / depth);
+    float2 hit = eye + (glass - eye) * (eyeDist / depth);
 
     float radius = min(blurSpread * gap, maxBlurRadius);
 

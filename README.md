@@ -113,6 +113,30 @@ If the frame leans the *wrong* way when you tilt, use the "Flip tilt
 direction" switch — don't edit code for this, it's exactly what the switch is
 for.
 
+## Things that were investigated and can't be done
+Recording these so they don't get re-attempted:
+
+- **Hiding the system bars while the effect runs.** Not possible from this
+  app. `TYPE_APPLICATION_OVERLAY` is specifically barred from drawing over or
+  controlling the status and navigation bars — an intentional Android 8.0
+  security decision with no app-level workaround. The bars already render
+  *above* the overlay for the same reason. Doing this would need the app to
+  be the foreground Activity (which it isn't — it's an overlay over other
+  apps), or the signature-level `STATUS_BAR` permission, or root.
+
+- **Continuous live capture behind the fold.** The single-frame path avoids
+  capturing itself by grabbing its frame *before* the overlay is shown, then
+  parking the VirtualDisplay. That trick doesn't extend to continuous
+  capture: while the overlay is up it is part of the screen, so it lands in
+  the next frame and compounds. There's no public API to exclude one window
+  from a MediaProjection mirror of the same display. `FLAG_SECURE` on the
+  overlay blanks it in the capture, but since the overlay covers the screen
+  the capture becomes entirely black. Hiding the overlay per captured frame
+  works but strobes the real screen at the capture rate. Android 14's
+  single-app capture would exclude the overlay, but the user picks the app at
+  consent time and it doesn't follow app switches, which defeats a
+  system-wide effect.
+
 ## Known constraints
 - The system's screen-recording indicator stays visible the whole time the
   feature is enabled, not just during a tilt. That's the price of holding one

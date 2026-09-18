@@ -10,6 +10,7 @@ import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -73,6 +74,8 @@ class OverlayController(private val context: Context) {
         } else {
             null
         }
+
+    private var frameFitChecked = false
 
     private var cornerRadiusPx = 0f
     private val cardOutlineProvider = object : ViewOutlineProvider() {
@@ -145,6 +148,7 @@ class OverlayController(private val context: Context) {
         val shader = foldShader ?: return null
         if (!tunables.foldShaderEnabled) return null
         if (imageView.width <= 0 || imageView.height <= 0) return null
+        warnIfFrameDoesNotFitOverlay(imageView)
 
         val pxPerMm = pixelsPerMm()
         return shader.renderEffect(
@@ -159,6 +163,25 @@ class OverlayController(private val context: Context) {
             maxBlurRadiusPx = tunables.maxBlurRadiusPx,
             darkenPerPx = tunables.darkenPerMm / pxPerMm,
             maxDarken = tunables.maxDarken
+        )
+    }
+
+    /**
+     * The shader works in the overlay's coordinate space, so a captured frame
+     * that isn't exactly overlay-sized gets stretched by FIT_XY before the
+     * shader ever sees it — distortion no uniform can undo. Both sizes derive
+     * from the full display and should agree; this says so on the device if
+     * they ever don't. Once per gesture, not per frame.
+     */
+    private fun warnIfFrameDoesNotFitOverlay(imageView: ImageView) {
+        if (frameFitChecked) return
+        frameFitChecked = true
+        val frame = imageView.drawable ?: return
+        if (frame.intrinsicWidth == imageView.width && frame.intrinsicHeight == imageView.height) return
+        Log.w(
+            TAG,
+            "Captured frame ${frame.intrinsicWidth}x${frame.intrinsicHeight} does not match " +
+                "overlay ${imageView.width}x${imageView.height} — FIT_XY is distorting it"
         )
     }
 
@@ -217,6 +240,7 @@ class OverlayController(private val context: Context) {
         scaleXSpring = null
         scaleYSpring = null
         cornerRadiusPx = 0f
+        frameFitChecked = false
     }
 
     private fun attach() {
@@ -297,5 +321,6 @@ class OverlayController(private val context: Context) {
 
     private companion object {
         const val MM_PER_INCH = 25.4f
+        const val TAG = "FoldEchoOverlay"
     }
 }
