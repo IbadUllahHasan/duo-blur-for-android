@@ -249,7 +249,8 @@ private fun ControlPanel(
             readout = "${(tunables.perspectiveStrength * 100).roundToInt()}%",
             value = tunables.perspectiveStrength,
             range = 0f..1f,
-            help = "How much depth the tilt reveals (camera distance), not how far the frame leans.",
+            help = "How much depth the tilt reveals (camera distance), not how far the frame leans. " +
+                "Lean/scale renderer only — the ray-traced fold sets its own perspective.",
             enabled = tunables.perspectiveEnabled,
             onEnabledChange = { onTunablesChange(tunables.copy(perspectiveEnabled = it)) }
         ) { onTunablesChange(tunables.copy(perspectiveStrength = it)) }
@@ -280,7 +281,8 @@ private fun ControlPanel(
             value = tunables.maxShrink,
             range = 0f..0.3f,
             help = "How much the frame shrinks at full tilt, paired with the lean — " +
-                "sells a plane receding into distance rather than a flat zoom.",
+                "sells a plane receding into distance rather than a flat zoom. " +
+                "Lean/scale renderer only.",
             enabled = tunables.shrinkEnabled,
             onEnabledChange = { onTunablesChange(tunables.copy(shrinkEnabled = it)) }
         ) { onTunablesChange(tunables.copy(maxShrink = it)) }
@@ -312,10 +314,73 @@ private fun ControlPanel(
             readout = "${(tunables.motionSoftness * 100).roundToInt()}%",
             value = tunables.motionSoftness,
             range = 0f..1f,
-            help = "Spring damping on the lean/recede motion. Low is a light settle; high overshoots and bounces.",
+            help = "Spring damping on the lean/recede motion. Low is a light settle; high overshoots " +
+                "and bounces. Lean/scale renderer only — the fold tracks tilt directly.",
             enabled = tunables.motionSoftnessEnabled,
             onEnabledChange = { onTunablesChange(tunables.copy(motionSoftnessEnabled = it)) }
         ) { onTunablesChange(tunables.copy(motionSoftness = it)) }
+
+        Spacer(Modifier.height(20.dp))
+        Text("Ray-traced fold", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = Color.White)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Text(
+                "Needs Android 13 or newer — this device uses the lean/scale renderer instead.",
+                fontSize = 11.sp,
+                color = Color(0xFFFFD79A)
+            )
+        }
+        TuningToggle(
+            label = "Use ray-traced fold",
+            help = "Swaps the lean/scale transform for a per-pixel ray trace through " +
+                "tilted glass onto the fixed content plane. Falls back on its own if " +
+                "the shader won't compile on this device.",
+            checked = tunables.foldShaderEnabled
+        ) { onTunablesChange(tunables.copy(foldShaderEnabled = it)) }
+
+        TuningSlider(
+            label = "View distance",
+            readout = "${tunables.viewDistanceMm.roundToInt()}mm",
+            value = tunables.viewDistanceMm,
+            range = 100f..600f,
+            help = "How far the eye sits from the content plane. Closer is a more extreme perspective.",
+            enabled = tunables.foldShaderEnabled
+        ) { onTunablesChange(tunables.copy(viewDistanceMm = it)) }
+
+        TuningSlider(
+            label = "Blur per mm",
+            readout = "${"%.1f".format(tunables.blurPerMm)}px",
+            value = tunables.blurPerMm,
+            range = 0f..6f,
+            help = "Blur radius gained per mm of gap between the glass and the plane.",
+            enabled = tunables.foldShaderEnabled
+        ) { onTunablesChange(tunables.copy(blurPerMm = it)) }
+
+        TuningSlider(
+            label = "Max blur radius",
+            readout = "${tunables.maxBlurRadiusPx.roundToInt()}px",
+            value = tunables.maxBlurRadiusPx,
+            range = 0f..96f,
+            help = "Ceiling on that radius, so a steep tilt can't melt the whole frame.",
+            enabled = tunables.foldShaderEnabled
+        ) { onTunablesChange(tunables.copy(maxBlurRadiusPx = it)) }
+
+        TuningSlider(
+            label = "Darken per mm",
+            readout = "${"%.1f".format(tunables.darkenPerMm * 100)}%",
+            value = tunables.darkenPerMm,
+            range = 0f..0.1f,
+            help = "Light lost per mm of that same gap — frosted glass absorbing as it scatters.",
+            enabled = tunables.foldShaderEnabled
+        ) { onTunablesChange(tunables.copy(darkenPerMm = it)) }
+
+        TuningSlider(
+            label = "Max darken",
+            readout = "${(tunables.maxDarken * 100).roundToInt()}%",
+            value = tunables.maxDarken,
+            range = 0f..1f,
+            help = "Ceiling on that loss, so the far edge keeps some detail before it goes black.",
+            enabled = tunables.foldShaderEnabled
+        ) { onTunablesChange(tunables.copy(maxDarken = it)) }
 
         Spacer(Modifier.height(8.dp))
         TuningToggle(

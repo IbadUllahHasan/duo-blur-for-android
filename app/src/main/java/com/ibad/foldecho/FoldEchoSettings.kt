@@ -46,6 +46,17 @@ data class Tunables(
     val motionSoftness: Float = 0.25f,
     val motionSoftnessEnabled: Boolean = true,
 
+    /** Swaps the lean/scale transform for the ray-traced AGSL fold. Ignored below API 33, or if the shader won't compile. */
+    val foldShaderEnabled: Boolean = true,
+    /** How far the eye sits from the content plane, along its normal. */
+    val viewDistanceMm: Float = 300f,
+    /** Blur radius in px gained per mm of glass-to-plane gap. */
+    val blurPerMm: Float = 1.5f,
+    val maxBlurRadiusPx: Float = 48f,
+    /** Fraction of light lost per mm of gap. */
+    val darkenPerMm: Float = 0.02f,
+    val maxDarken: Float = 0.8f,
+
     /** Flips tilt-to-lean direction. The "correct" sign depends on the device's sensor axis convention, so this is a runtime toggle rather than a code edit. */
     val flipTiltDirection: Boolean = false
 ) {
@@ -75,6 +86,12 @@ object FoldEchoSettings {
     private const val KEY_CORNER_RADIUS_ENABLED = "corner_radius_enabled"
     private const val KEY_MOTION_SOFTNESS = "motion_softness"
     private const val KEY_MOTION_SOFTNESS_ENABLED = "motion_softness_enabled"
+    private const val KEY_FOLD_SHADER_ENABLED = "fold_shader_enabled"
+    private const val KEY_VIEW_DISTANCE_MM = "view_distance_mm"
+    private const val KEY_BLUR_PER_MM = "blur_per_mm"
+    private const val KEY_MAX_BLUR_RADIUS_PX = "max_blur_radius_px"
+    private const val KEY_DARKEN_PER_MM = "darken_per_mm"
+    private const val KEY_MAX_DARKEN = "max_darken"
     private const val KEY_FLIP = "flip_tilt_direction"
 
     fun prefs(context: Context): SharedPreferences =
@@ -101,6 +118,12 @@ object FoldEchoSettings {
             cornerRadiusBaseDp = defaults.cornerRadiusBaseDp,
             motionSoftness = prefs.getFloat(KEY_MOTION_SOFTNESS, defaults.motionSoftness),
             motionSoftnessEnabled = prefs.getBoolean(KEY_MOTION_SOFTNESS_ENABLED, defaults.motionSoftnessEnabled),
+            foldShaderEnabled = prefs.getBoolean(KEY_FOLD_SHADER_ENABLED, defaults.foldShaderEnabled),
+            viewDistanceMm = prefs.getFloat(KEY_VIEW_DISTANCE_MM, defaults.viewDistanceMm),
+            blurPerMm = prefs.getFloat(KEY_BLUR_PER_MM, defaults.blurPerMm),
+            maxBlurRadiusPx = prefs.getFloat(KEY_MAX_BLUR_RADIUS_PX, defaults.maxBlurRadiusPx),
+            darkenPerMm = prefs.getFloat(KEY_DARKEN_PER_MM, defaults.darkenPerMm),
+            maxDarken = prefs.getFloat(KEY_MAX_DARKEN, defaults.maxDarken),
             flipTiltDirection = prefs.getBoolean(KEY_FLIP, defaults.flipTiltDirection)
         )
     }
@@ -124,6 +147,12 @@ object FoldEchoSettings {
             .putBoolean(KEY_CORNER_RADIUS_ENABLED, tunables.cornerRadiusEnabled)
             .putFloat(KEY_MOTION_SOFTNESS, tunables.motionSoftness)
             .putBoolean(KEY_MOTION_SOFTNESS_ENABLED, tunables.motionSoftnessEnabled)
+            .putBoolean(KEY_FOLD_SHADER_ENABLED, tunables.foldShaderEnabled)
+            .putFloat(KEY_VIEW_DISTANCE_MM, tunables.viewDistanceMm)
+            .putFloat(KEY_BLUR_PER_MM, tunables.blurPerMm)
+            .putFloat(KEY_MAX_BLUR_RADIUS_PX, tunables.maxBlurRadiusPx)
+            .putFloat(KEY_DARKEN_PER_MM, tunables.darkenPerMm)
+            .putFloat(KEY_MAX_DARKEN, tunables.maxDarken)
             .putBoolean(KEY_FLIP, tunables.flipTiltDirection)
             .apply()
     }

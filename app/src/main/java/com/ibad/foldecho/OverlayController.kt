@@ -8,6 +8,8 @@ import android.graphics.PixelFormat
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
@@ -28,13 +30,18 @@ import kotlin.math.hypot
  *
  * View hierarchy:
  *   root (black background, fills the screen)
- *     - card (the 3D-transformed "plane": rotationX/Y, scale, cameraDistance
- *       and the rounded-corner clip all live here, so image + edgeFade lean,
- *       recede and round together as one rigid unit)
- *         - image (the captured frame)
+ *     - card (the "plane": the rounded-corner clip lives here, plus the
+ *       rotationX/Y + scale of the transform renderer, so image + edgeFade
+ *       move as one rigid unit)
+ *         - image (the captured frame, and where the fold shader is applied)
  *         - edgeFade (a radial gradient on top, alpha driven by tilt)
  *     - scrim (full-screen dim, deliberately NOT part of `card` — dimming the
  *       whole screen is a different thing from the plane fading at its edges)
+ *
+ * Two renderers share that hierarchy. The ray-traced AGSL fold is preferred;
+ * the rotationX/Y + scale transform is the fallback for API 31/32, for a
+ * device whose driver rejects the shader, and for when it's switched off.
+ * Only one of them drives the geometry at a time.
  *
  * All methods must be called on the main thread.
  */
@@ -57,6 +64,16 @@ class OverlayController(private val context: Context) {
     private val minDampingRatio = SpringForce.DAMPING_RATIO_HIGH_BOUNCY
     private val springStiffness = SpringForce.STIFFNESS_MEDIUM
 
+    // Null on API 31/32, or when the AGSL won't compile on this device. Built
+    // once, behind the version check, so FoldShader is never class-loaded
+    // where RuntimeShader doesn't exist.
+    private val foldShader: FoldShader? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            FoldShader.createOrNull(context)
+        } else {
+            null
+        }
+
     private var cornerRadiusPx = 0f
     private val cardOutlineProvider = object : ViewOutlineProvider() {
         override fun getOutline(view: View, outline: Outline) {
@@ -71,22 +88,38 @@ class OverlayController(private val context: Context) {
 
     fun applyEffect(effect: FrameProcessor.Effect, tunables: Tunables) {
         val cardView = card ?: return
+        val imageView = image
         val density = context.resources.displayMetrics.density
 
-        applyMotion(cardView, DynamicAnimation.ROTATION_X, rotationXSpring, effect.rotationXDeg, tunables)
-        applyMotion(cardView, DynamicAnimation.ROTATION_Y, rotationYSpring, effect.rotationYDeg, tunables)
-        applyMotion(cardView, DynamicAnimation.SCALE_X, scaleXSpring, effect.scale, tunables)
-        applyMotion(cardView, DynamicAnimation.SCALE_Y, scaleYSpring, effect.scale, tunables)
+        val blur = if (effect.blurPx >= 1f) {
+            RenderEffect.createBlurEffect(effect.blurPx, effect.blurPx, Shader.TileMode.CLAMP)
+        } else {
+            null
+        }
+        val fold = imageView?.let { foldRenderEffect(it, effect, tunables) }
+
+        if (fold != null) {
+            // The shader ray-traces the geometry itself, so the card's own
+            // lean and scale would double up on it — hold it flat instead.
+            releaseTransform(cardView)
+        } else {
+            applyMotion(cardView, DynamicAnimation.ROTATION_X, rotationXSpring, effect.rotationXDeg, tunables)
+            applyMotion(cardView, DynamicAnimation.ROTATION_Y, rotationYSpring, effect.rotationYDeg, tunables)
+            applyMotion(cardView, DynamicAnimation.SCALE_X, scaleXSpring, effect.scale, tunables)
+            applyMotion(cardView, DynamicAnimation.SCALE_Y, scaleYSpring, effect.scale, tunables)
+        }
 
         // Recomputed every call (not just once at attach) so the "Perspective"
         // slider takes effect live while the service is running.
         cardView.cameraDistance = density * effect.cameraDistanceDp
 
-        image?.setRenderEffect(
-            if (effect.blurPx >= 1f) {
-                RenderEffect.createBlurEffect(effect.blurPx, effect.blurPx, Shader.TileMode.CLAMP)
-            } else {
-                null
+        // Chained so the Blur slider still means something under the shader:
+        // the blur runs first, and the fold samples the blurred content.
+        imageView?.setRenderEffect(
+            when {
+                fold != null && blur != null -> RenderEffect.createChainEffect(fold, blur)
+                fold != null -> fold
+                else -> blur
             }
         )
         scrim?.alpha = effect.dim
@@ -101,6 +134,50 @@ class OverlayController(private val context: Context) {
             cornerRadiusPx = targetRadiusPx
             cardView.invalidateOutline()
         }
+    }
+
+    /** Null whenever the ray-traced path can't run — no shader, switched off, or the view not laid out yet — which is the caller's cue to fall back. */
+    private fun foldRenderEffect(
+        imageView: ImageView,
+        effect: FrameProcessor.Effect,
+        tunables: Tunables
+    ): RenderEffect? {
+        val shader = foldShader ?: return null
+        if (!tunables.foldShaderEnabled) return null
+        if (imageView.width <= 0 || imageView.height <= 0) return null
+
+        val pxPerMm = pixelsPerMm()
+        return shader.renderEffect(
+            widthPx = imageView.width.toFloat(),
+            heightPx = imageView.height.toFloat(),
+            tiltDegrees = effect.foldTiltDeg,
+            hingeAxis = effect.hingeAxis,
+            hingeSide = effect.hingeSide,
+            eyeDistancePx = tunables.viewDistanceMm * pxPerMm,
+            // The shader works in px per px of gap; the sliders are per mm.
+            blurSpread = tunables.blurPerMm / pxPerMm,
+            maxBlurRadiusPx = tunables.maxBlurRadiusPx,
+            darkenPerPx = tunables.darkenPerMm / pxPerMm,
+            maxDarken = tunables.maxDarken
+        )
+    }
+
+    /** Falls back to the density bucket where a device reports a nonsense xdpi, which some do. */
+    private fun pixelsPerMm(): Float {
+        val metrics = context.resources.displayMetrics
+        val dpi = if (metrics.xdpi > 1f) metrics.xdpi else metrics.density * DisplayMetrics.DENSITY_DEFAULT
+        return dpi / MM_PER_INCH
+    }
+
+    private fun releaseTransform(view: View) {
+        rotationXSpring?.cancel()
+        rotationYSpring?.cancel()
+        scaleXSpring?.cancel()
+        scaleYSpring?.cancel()
+        view.rotationX = 0f
+        view.rotationY = 0f
+        view.scaleX = 1f
+        view.scaleY = 1f
     }
 
     /** Drives [target] onto [property] of [view] via [spring] — or, if motion softness is off, sets it directly and cancels any animation in flight. */
@@ -216,5 +293,9 @@ class OverlayController(private val context: Context) {
             setGradientRadius(radius)
             setColors(intArrayOf(Color.TRANSPARENT, Color.BLACK))
         }
+    }
+
+    private companion object {
+        const val MM_PER_INCH = 25.4f
     }
 }

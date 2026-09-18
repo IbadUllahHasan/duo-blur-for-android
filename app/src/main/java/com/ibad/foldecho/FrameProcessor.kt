@@ -1,5 +1,7 @@
 package com.ibad.foldecho
 
+import kotlin.math.abs
+
 /**
  * Turns a tilt reading into the effect parameters. Perspective is expressed as
  * View rotationX/rotationY rather than a bitmap Matrix: those are real
@@ -24,7 +26,14 @@ object FrameProcessor {
         val blurPx: Float,
         val dim: Float,
         /** 0..1 alpha for the edge-fade overlay; scales with tilt magnitude just like [dim]. */
-        val edgeFadeAlpha: Float
+        val edgeFadeAlpha: Float,
+
+        /** Signed fold angle for the ray-traced renderer, eased in by [intensity] so it doesn't pop at the activation threshold. */
+        val foldTiltDeg: Float,
+        /** 0 = the glass hinges on a vertical edge (left/right), 1 = a horizontal one (top/bottom). */
+        val hingeAxis: Float,
+        /** -1 = hinge on the left/top edge, +1 = right/bottom. */
+        val hingeSide: Float
     )
 
     /**
@@ -89,6 +98,18 @@ object FrameProcessor {
             0f
         }
 
+        // Which screen edge the glass hinges on: whichever axis currently
+        // leans further, and which way. Both axes share one sign convention,
+        // so "Flip tilt direction" still inverts them together.
+        val signedUp = sign * tiltUpDeg
+        val signedRight = sign * tiltRightDeg
+        val pitchDominates = abs(signedUp) > abs(signedRight)
+        val axisTiltDeg = if (pitchDominates) signedUp else signedRight
+        // Hinge on the near edge, so the gap — and the black it eventually
+        // opens up — grows on the far side, matching which way the transform
+        // renderer leans.
+        val hingeSide = if (axisTiltDeg >= 0f) -1f else 1f
+
         return Effect(
             rotationXDeg = rotationXDeg,
             rotationYDeg = rotationYDeg,
@@ -96,7 +117,10 @@ object FrameProcessor {
             cameraDistanceDp = cameraDistanceDp,
             blurPx = blurPx,
             dim = dim,
-            edgeFadeAlpha = edgeFadeAlpha
+            edgeFadeAlpha = edgeFadeAlpha,
+            foldTiltDeg = axisTiltDeg * intensity,
+            hingeAxis = if (pitchDominates) 1f else 0f,
+            hingeSide = hingeSide
         )
     }
 }

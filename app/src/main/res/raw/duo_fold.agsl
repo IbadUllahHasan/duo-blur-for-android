@@ -1,0 +1,110 @@
+// Ray-traced fold effect — AGSL, ported from the model in
+// github.com/Atomicx7/Duo-animation (res/raw/duo_fold.agsl), generalised from
+// a left/right hinge to any of the four screen edges.
+//
+// Model:
+// - The captured content lives on a fixed plane in world space (the untilted
+//   screen plane).
+// - The eye is stationary on that plane's normal through the screen centre,
+//   eyeDistancePx back from the plane.
+// - The glass rotates by tiltDegrees around a hinge edge, resolved at runtime
+//   from whichever tilt axis currently dominates and which way it leans.
+// - Per pixel: a ray from the eye through the glass point continues on to the
+//   content plane. Blur and darkening grow with the glass-to-plane gap, and a
+//   ray whose whole blur kernel misses the plane comes back black.
+//
+// Kept to minimal AGSL constructs (no break/continue, no bool locals, no
+// helper functions) — the author of the original reports that anything
+// fancier fails to compile on some devices and silently disables the effect.
+
+uniform shader content;
+uniform float2 resolution;
+
+// Signed tilt around the hinge, in degrees.
+uniform float tiltDegrees;
+// 0 = hinge is a vertical edge (left/right), 1 = a horizontal edge (top/bottom).
+uniform float hingeAxis;
+// -1 = hinge on the left/top edge, +1 = on the right/bottom edge.
+uniform float hingeSide;
+
+uniform float eyeDistancePx;
+// Blur radius in px gained per px of glass-to-plane gap, and its ceiling.
+uniform float blurSpread;
+uniform float maxBlurRadius;
+// Light lost per px of gap, and its ceiling (0..1).
+uniform float darkenPerPx;
+uniform float maxDarken;
+
+const float GOLDEN_ANGLE = 2.39996322972865332; // radians, Vogel disk spacing
+const float TWO_PI = 6.28318530717958648;
+
+half4 main(float2 fragCoord) {
+    float2 size = resolution;
+    if (size.x <= 1.0 || size.y <= 1.0) {
+        return content.eval(fragCoord);
+    }
+
+    float tilt = radians(clamp(abs(tiltDegrees), 0.0, 45.0));
+    if (tilt < 1e-5) {
+        return content.eval(fragCoord);
+    }
+
+    // Pick the axis the fold runs across, then work in 1D along it. This is
+    // the whole of the four-edge generalisation: the ray math below is
+    // unchanged, it just measures distance from a different edge.
+    float alongY = step(0.5, hingeAxis);
+    float coord = mix(fragCoord.x, fragCoord.y, alongY);
+    float extent = mix(size.x, size.y, alongY);
+
+    float isFar = step(0.0, hingeSide); // 1 = hinge on the right/bottom edge
+    float hinge = mix(0.0, extent, isFar);
+    float away = mix(1.0, -1.0, isFar); // direction across the screen, away from the hinge
+    float d = abs(coord - hinge);       // distance from the hinge, along the glass
+
+    // Glass rotated `tilt` about the hinge line, rising toward the viewer.
+    float moved = hinge + away * d * cos(tilt);
+    float gap = d * sin(tilt);
+    float2 glass = mix(float2(moved, fragCoord.y), float2(fragCoord.x, moved), alongY);
+
+    float2 eye = size * 0.5;
+
+    // Ray eye -> glass pixel, continued to the content plane at z = 0.
+    float depth = eyeDistancePx - gap;
+    if (depth <= 1e-3) {
+        return half4(0.0, 0.0, 0.0, 1.0);
+    }
+    float2 hit = eye + (glass - eye) * (eyeDistancePx / depth);
+
+    float radius = min(blurSpread * gap, maxBlurRadius);
+
+    // The whole blur kernel misses the content: black.
+    if (hit.x < -radius || hit.y < -radius ||
+        hit.x > size.x + radius || hit.y > size.y + radius) {
+        return half4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    // Frosted glass absorbs: dim in proportion to the gap it scattered across.
+    float atten = 1.0 - min(darkenPerPx * gap, clamp(maxDarken, 0.0, 1.0));
+
+    if (radius < 0.5) {
+        return content.eval(hit) * half(atten);
+    }
+
+    // Vogel disk with per-pixel rotation (banding becomes frosted-glass grain).
+    // A fixed 32-iteration loop with a weight mask rather than an early break:
+    // small kernels stay cheap near the hinge, and it compiles everywhere.
+    float tapsF = clamp(radius * 2.0, 6.0, 32.0);
+    float rotation = fract(sin(dot(fragCoord, float2(12.9898, 78.233))) * 43758.5453) * TWO_PI;
+    half3 sum = half3(0.0);
+    float wsum = 0.0;
+    for (int i = 0; i < 32; i++) {
+        float fi = float(i);
+        float w = 1.0 - step(tapsF, fi);
+        float r = radius * sqrt((fi + 0.5) / tapsF);
+        float a = fi * GOLDEN_ANGLE + rotation;
+        sum += content.eval(hit + r * float2(cos(a), sin(a))).rgb * half(w);
+        wsum += w;
+    }
+    half3 avg = sum / half(max(wsum, 1.0));
+    return half4(avg * half(atten), 1.0);
+}

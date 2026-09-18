@@ -26,9 +26,31 @@ real on-device testing can settle.
   surface. A gesture grabs exactly one frame and freezes it; re-reading the
   screen mid-gesture would capture the overlay itself and feed it back.
 - **`OverlayController`** — hardware-accelerated `TYPE_APPLICATION_OVERLAY`
-  window. Perspective comes from View `rotationX`/`rotationY` plus
-  `cameraDistance`, blur from `RenderEffect`, dimming from a scrim — all
-  GPU-side, none of it re-drawing the bitmap per frame.
+  window, hosting two interchangeable renderers (below). Blur comes from
+  `RenderEffect`, dimming from a scrim — all GPU-side, none of it re-drawing
+  the bitmap per frame.
+
+## The two renderers
+**Ray-traced fold** (default, Android 13+) — an AGSL `RuntimeShader` in
+`res/raw/duo_fold.agsl`, ported from the model in
+[Atomicx7/Duo-animation](https://github.com/Atomicx7/Duo-animation) and
+generalised from its left/right hinge to all four screen edges. The captured
+frame is a fixed plane in world space; the eye sits still on that plane's
+normal; the glass rotates around whichever screen edge the dominant tilt axis
+hinges on. Per pixel it casts a ray from the eye through the glass onto the
+plane, blurring and darkening in proportion to the glass-to-plane gap, and
+returning black where the ray misses the plane entirely.
+
+**Lean/scale transform** (fallback) — View `rotationX`/`rotationY` plus
+`cameraDistance` and a coupled scale-down, sprung via `SpringAnimation`.
+
+minSdk stays at **31**, so the shader path is gated at runtime three ways: the
+device must be on API 33+, the AGSL must actually compile, and the toggle must
+be on. Any of those failing drops cleanly back to the transform renderer —
+which is why that renderer is kept rather than deleted. The compile check
+isn't hypothetical; the original's author documents the shader silently
+failing on some devices, which is also why it sticks to minimal AGSL
+constructs (no `break`/`continue`, no bool locals, no helper functions).
 
 The frame leans *against* the phone's tilt, not with it — the content is
 meant to read as a fixed plane behind a moving viewport (like looking through
@@ -57,7 +79,20 @@ it wants real-device testing:
 | Edge Fade | 30% | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
 | Corner Radius | 100% | Fraction of *this device's* actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) — 100% matches the real corners exactly |
 | Motion Softness | 25% | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
+| Use ray-traced fold | on | Ray-traced shader vs. the lean/scale transform |
+| View distance | 300mm | How far the eye sits from the content plane — closer is a more extreme perspective |
+| Blur per mm | 1.5px | Blur radius gained per mm of glass-to-plane gap |
+| Max blur radius | 48px | Ceiling on that radius |
+| Darken per mm | 2.0% | Light lost per mm of that gap |
+| Max darken | 80% | Ceiling on that loss |
 | Flip tilt direction | off | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
+
+Perspective, Recede and Motion Softness drive the lean/scale renderer only —
+with the ray-traced fold on, its own projection replaces them. Blur still
+applies either way: it runs first and the fold samples the blurred content.
+The five millimetre-based fold parameters are converted to the shader's pixel
+units against the display's physical density (`xdpi`), so they mean real
+physical distance rather than pixels.
 
 "Reset to defaults," next to the "Tuning" header, writes every value above
 back to its starting point in one tap — including re-detecting the device's
