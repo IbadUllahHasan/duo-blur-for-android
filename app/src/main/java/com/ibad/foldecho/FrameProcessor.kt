@@ -1,63 +1,41 @@
 package com.ibad.foldecho
 
-import android.graphics.Matrix
-
 /**
- * Pure math for turning a tilt reading into the three effect parameters —
- * perspective warp matrix, blur radius, dim alpha — kept free of the
- * capture/overlay plumbing so the warp/blur "feel" can be tuned on a real
- * device without touching MediaProjection or WindowManager code.
- *
- * Thresholds picked as a starting point per the spec's open decisions; all
- * four constants below are the ones flagged there as needing on-device
- * tuning rather than a guessable value.
+ * Turns a tilt reading into the effect parameters. Perspective is expressed as
+ * View rotationX/rotationY rather than a bitmap Matrix: those are real
+ * GPU-accelerated 3D transforms, where a perspective Matrix forces every draw
+ * of a full-screen bitmap down Skia's software path — which is what made the
+ * effect stutter.
  */
 object FrameProcessor {
 
-    /** Deviation (degrees) above which the effect activates. */
-    const val ACTIVATE_THRESHOLD_DEG = 12f
+    data class Effect(
+        val rotationXDeg: Float,
+        val rotationYDeg: Float,
+        val scale: Float,
+        val blurPx: Float,
+        val dim: Float
+    )
 
-    /** Deviation (degrees) below which an already-active effect turns off. Lower than [ACTIVATE_THRESHOLD_DEG] as hysteresis, so it doesn't flicker right at the boundary. */
-    const val DEACTIVATE_THRESHOLD_DEG = 7f
+    /** Scale up slightly so the edges revealed by the 3D rotation stay covered. */
+    private const val MAX_OVERSCAN = 0.05f
 
-    /** Kept subtle per the spec's warning that this is the parameter most likely to look gimmicky. */
-    private const val MAX_WARP_SHIFT_FRACTION = 0.05f
-    private const val MAX_BLUR_PX = 40f
-    private const val MAX_DIM_ALPHA = 0.55f
+    fun effectFor(deviationDeg: Float, tiltUpDeg: Float, tiltRightDeg: Float, tunables: Tunables): Effect {
+        val span = (tunables.fullTiltDeg - tunables.activateDeg).coerceAtLeast(1f)
+        val raw = ((deviationDeg - tunables.activateDeg) / span).coerceIn(0f, 1f)
+        val intensity = raw * raw * (3f - 2f * raw)
 
-    /** 0 at [ACTIVATE_THRESHOLD_DEG], 1 at [TiltTracker.NORMALIZE_DEG] deviation. */
-    fun intensity(deviationDeg: Float): Float {
-        val range = TiltTracker.NORMALIZE_DEG - ACTIVATE_THRESHOLD_DEG
-        val t = ((deviationDeg - ACTIVATE_THRESHOLD_DEG) / range).coerceIn(0f, 1f)
-        return smoothstep(t)
-    }
+        val upward = (tiltUpDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
+        val rightward = (tiltRightDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
+        val swing = tunables.maxRotationDeg * intensity
 
-    /** A "tilted card" perspective: the near edge pulls in, the far edge pushes out, keyed to tilt direction. */
-    fun warpMatrix(width: Float, height: Float, dPitch: Float, dRoll: Float, intensity: Float): Matrix {
-        val shiftX = width * MAX_WARP_SHIFT_FRACTION * intensity * dRoll
-        val shiftY = height * MAX_WARP_SHIFT_FRACTION * intensity * dPitch
-
-        val src = floatArrayOf(
-            0f, 0f,
-            width, 0f,
-            0f, height,
-            width, height
+        // Flip either sign here if the image leans the wrong way on your phone.
+        return Effect(
+            rotationXDeg = upward * swing,
+            rotationYDeg = -rightward * swing,
+            scale = 1f + MAX_OVERSCAN * intensity,
+            blurPx = tunables.maxBlurPx * intensity,
+            dim = tunables.maxDim * intensity
         )
-        val dst = floatArrayOf(
-            0f + shiftX, 0f + shiftY,
-            width - shiftX, 0f + shiftY,
-            0f - shiftX, height - shiftY,
-            width + shiftX, height - shiftY
-        )
-
-        val matrix = Matrix()
-        matrix.setPolyToPoly(src, 0, dst, 0, 4)
-        return matrix
     }
-
-    fun blurRadiusPx(intensity: Float): Float = MAX_BLUR_PX * intensity
-
-    fun dimAlpha(intensity: Float): Float = MAX_DIM_ALPHA * intensity
-
-    private fun smoothstep(t: Float): Float = t * t * (3f - 2f * t)
 }

@@ -1,51 +1,61 @@
 package com.ibad.foldecho
 
+import android.app.Activity
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.SharedPreferences
+import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.hardware.SensorManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import kotlin.math.abs
 
 /**
- * Foreground service owning the whole tilt-driven capture pipeline: keeps
- * the MediaProjection session alive for as long as the feature is enabled —
- * this is what keeps the system's recording indicator up and avoids
- * re-prompting for consent on every tilt — watches continuous tilt
- * deviation from a calibrated neutral pose, and only spins up the
- * VirtualDisplay/ImageReader/overlay window for the duration of an actual
- * tilt gesture.
+ * Foreground service owning the tilt pipeline. The MediaProjection and its one
+ * VirtualDisplay are set up once, when consent is granted; from then on a tilt
+ * gesture only asks for a frame and shows/hides the overlay. All sensor and
+ * capture work happens on [bg]; the main thread is touched only to move views.
  */
 class FoldEchoService : Service(), TiltTracker.Listener {
 
-    private lateinit var tiltTracker: TiltTracker
+    private val bgThread = HandlerThread("FoldEchoCapture").apply { start() }
+    private val bg = Handler(bgThread.looper)
+    private val main = Handler(Looper.getMainLooper())
+
     private lateinit var overlay: OverlayController
-    private var mediaProjection: MediaProjection? = null
-    private var captureSession: CaptureSession? = null
+    private var projection: MediaProjection? = null
+    private var capture: CaptureSession? = null
+    private var tiltTracker: TiltTracker? = null
 
+    @Volatile private var tunables = Tunables()
+    private val tunablesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        tunables = FoldEchoSettings.load(this)
+    }
+
+    // Owned by the bg thread.
     private var active = false
-    @Volatile private var lastDeviationDeg = 0f
-    @Volatile private var lastDPitch = 0f
-    @Volatile private var lastDRoll = 0f
-
-    private val frameThread = HandlerThread("FoldEchoFrames").apply { start() }
-    private val frameHandler = Handler(frameThread.looper)
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var frameLoopRunning = false
+    private var frameInFlight = false
+    private var activeSince = 0L
+    private var suppressedUntilNeutral = false
 
     override fun onCreate() {
         super.onCreate()
         overlay = OverlayController(this)
-        val sensorManager = getSystemService(SensorManager::class.java)
-        tiltTracker = TiltTracker(sensorManager, this)
+        tunables = FoldEchoSettings.load(this)
+        FoldEchoSettings.prefs(this).registerOnSharedPreferenceChangeListener(tunablesChanged)
     }
 
     @Suppress("DEPRECATION")
@@ -56,92 +66,134 @@ class FoldEchoService : Service(), TiltTracker.Listener {
                 return START_NOT_STICKY
             }
             ACTION_RECALIBRATE -> {
-                tiltTracker.calibrateToCurrentPose()
-                return START_STICKY
+                bg.post { tiltTracker?.calibrateToCurrentPose() }
+                return START_NOT_STICKY
             }
         }
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        if (projection != null) return START_NOT_STICKY
 
-        if (mediaProjection == null) {
-            val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
-            val resultData = intent?.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
-            if (resultData != null) {
-                val projectionManager = getSystemService(MediaProjectionManager::class.java)
-                val projection = projectionManager.getMediaProjection(resultCode, resultData)
-                mediaProjection = projection
-                projection.registerCallback(object : MediaProjection.Callback() {
-                    override fun onStop() = stopSelf()
-                }, mainHandler)
-                captureSession = CaptureSession(this, projection)
-                tiltTracker.start()
+        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
+            ?: Activity.RESULT_CANCELED
+        val resultData = intent?.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
+        if (resultCode != Activity.RESULT_OK || resultData == null) {
+            // No consent token — which is also what a restart would hand us.
+            // Starting a mediaProjection service without one is a SecurityException.
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            buildNotification(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            } else {
+                0
             }
-        }
+        )
 
-        return START_STICKY
-    }
-
-    override fun onTilt(deviationDeg: Float, dPitch: Float, dRoll: Float) {
-        lastDeviationDeg = deviationDeg
-        lastDPitch = dPitch
-        lastDRoll = dRoll
-
-        val shouldActivate = if (active) {
-            deviationDeg >= FrameProcessor.DEACTIVATE_THRESHOLD_DEG
-        } else {
-            deviationDeg >= FrameProcessor.ACTIVATE_THRESHOLD_DEG
-        }
-
-        if (shouldActivate && !active) {
-            active = true
-            captureSession?.open()
-            overlay.show()
-            startFrameLoop()
-        } else if (!shouldActivate && active) {
-            active = false
-            stopFrameLoop()
-            overlay.hide()
-            captureSession?.close()
-        }
-    }
-
-    private fun startFrameLoop() {
-        if (frameLoopRunning) return
-        frameLoopRunning = true
-        frameHandler.post(frameLoopRunnable)
-    }
-
-    private fun stopFrameLoop() {
-        frameLoopRunning = false
-        frameHandler.removeCallbacks(frameLoopRunnable)
-    }
-
-    private val frameLoopRunnable = object : Runnable {
-        override fun run() {
-            if (!frameLoopRunning) return
-            val session = captureSession
-            val frame = session?.pullLatestFrame()
-            if (session != null && frame != null) {
-                val intensity = FrameProcessor.intensity(lastDeviationDeg)
-                val matrix = FrameProcessor.warpMatrix(
-                    session.width.toFloat(), session.height.toFloat(), lastDPitch, lastDRoll, intensity
-                )
-                val blur = FrameProcessor.blurRadiusPx(intensity)
-                val dim = FrameProcessor.dimAlpha(intensity)
-                mainHandler.post { overlay.update(frame, matrix, blur, dim) }
+        val mediaProjection = getSystemService(MediaProjectionManager::class.java)
+            .getMediaProjection(resultCode, resultData)
+        projection = mediaProjection
+        mediaProjection.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                stopSelf()
             }
-            frameHandler.postDelayed(this, FRAME_INTERVAL_MS)
+        }, main)
+
+        bg.post {
+            capture = CaptureSession(this, mediaProjection, bg).apply { create() }
+            tiltTracker = TiltTracker(getSystemService(SensorManager::class.java), bg, this)
+                .apply { start() }
+        }
+        FoldEchoState.running.value = true
+
+        // Consent can't survive a restart, so there's nothing to be sticky about.
+        return START_NOT_STICKY
+    }
+
+    override fun onTilt(deviationDeg: Float, tiltUpDeg: Float, tiltRightDeg: Float) {
+        val current = tunables
+        if (abs(deviationDeg - FoldEchoState.deviationDeg.value) > DEVIATION_REPORT_STEP) {
+            FoldEchoState.deviationDeg.value = deviationDeg
+        }
+
+        if (suppressedUntilNeutral) {
+            if (deviationDeg < current.releaseDeg) suppressedUntilNeutral = false
+            return
+        }
+
+        val heldTooLong = active &&
+            SystemClock.elapsedRealtime() - activeSince > MAX_ACTIVE_MS
+        if (heldTooLong) {
+            // A touch-blocking overlay that never lifts would strand the user,
+            // so give up on this gesture and wait for a return to neutral.
+            suppressedUntilNeutral = true
+            endGesture()
+            return
+        }
+
+        val shouldBeActive =
+            if (active) deviationDeg >= current.releaseDeg else deviationDeg >= current.activateDeg
+
+        if (shouldBeActive && !active) {
+            beginGesture()
+        } else if (!shouldBeActive && active) {
+            endGesture()
+        }
+
+        if (active) {
+            val effect = FrameProcessor.effectFor(deviationDeg, tiltUpDeg, tiltRightDeg, current)
+            main.post { overlay.applyEffect(effect) }
+        }
+    }
+
+    private fun beginGesture() {
+        val session = capture ?: return
+        if (frameInFlight) return
+
+        active = true
+        activeSince = SystemClock.elapsedRealtime()
+        frameInFlight = true
+        FoldEchoState.effectActive.value = true
+
+        session.requestFrame { frame ->
+            frameInFlight = false
+            if (frame == null) {
+                // Nothing to show (secure window, or the grab timed out).
+                if (active) endGesture()
+                return@requestFrame
+            }
+            if (!active) return@requestFrame
+            main.post { overlay.show(frame) }
+        }
+    }
+
+    private fun endGesture() {
+        active = false
+        FoldEchoState.effectActive.value = false
+        main.post { overlay.hide() }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        bg.post {
+            if (active) endGesture()
+            capture?.updateDisplaySize()
         }
     }
 
     override fun onDestroy() {
-        tiltTracker.stop()
-        stopFrameLoop()
+        FoldEchoSettings.prefs(this).unregisterOnSharedPreferenceChangeListener(tunablesChanged)
+        tiltTracker?.stop()
         overlay.hide()
-        captureSession?.close()
-        mediaProjection?.stop()
-        mediaProjection = null
-        frameThread.quitSafely()
+        projection?.stop()
+        projection = null
+        bg.post { capture?.release() }
+        bgThread.quitSafely()
+        FoldEchoState.reset()
         super.onDestroy()
     }
 
@@ -155,14 +207,19 @@ class FoldEchoService : Service(), TiltTracker.Listener {
             )
         }
 
-        val stopPendingIntent = PendingIntent.getService(
+        val openPanel = PendingIntent.getActivity(
             this, 0,
-            Intent(this, FoldEchoService::class.java).setAction(ACTION_STOP),
+            Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE
         )
-        val recalibratePendingIntent = PendingIntent.getService(
+        val recalibrate = PendingIntent.getService(
             this, 1,
             Intent(this, FoldEchoService::class.java).setAction(ACTION_RECALIBRATE),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val stop = PendingIntent.getService(
+            this, 2,
+            Intent(this, FoldEchoService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -170,9 +227,10 @@ class FoldEchoService : Service(), TiltTracker.Listener {
             .setContentTitle("FoldEcho is watching for tilt")
             .setContentText("Tilt the phone to trigger the effect anywhere on the device.")
             .setSmallIcon(android.R.drawable.ic_menu_rotate)
+            .setContentIntent(openPanel)
             .setOngoing(true)
-            .addAction(0, "Recalibrate", recalibratePendingIntent)
-            .addAction(0, "Stop", stopPendingIntent)
+            .addAction(0, "Recalibrate", recalibrate)
+            .addAction(0, "Stop", stop)
             .build()
     }
 
@@ -181,10 +239,10 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         const val ACTION_RECALIBRATE = "com.ibad.foldecho.action.RECALIBRATE"
         const val EXTRA_RESULT_CODE = "com.ibad.foldecho.extra.RESULT_CODE"
         const val EXTRA_RESULT_DATA = "com.ibad.foldecho.extra.RESULT_DATA"
+
         private const val CHANNEL_ID = "foldecho_service"
         private const val NOTIFICATION_ID = 42
-
-        /** ~5fps. Spec: start low, raise only if the effect looks laggy in testing. */
-        private const val FRAME_INTERVAL_MS = 200L
+        private const val MAX_ACTIVE_MS = 8_000L
+        private const val DEVIATION_REPORT_STEP = 0.2f
     }
 }
