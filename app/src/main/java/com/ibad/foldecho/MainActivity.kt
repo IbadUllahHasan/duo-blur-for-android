@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -231,11 +232,11 @@ private fun ControlPanel(
 
         TuningSlider(
             label = "Perspective",
-            readout = "${tunables.maxRotationDeg.roundToInt()}°",
-            value = tunables.maxRotationDeg,
-            range = 0f..15f,
-            help = "How far the frame leans. Subtle reads better than dramatic."
-        ) { onTunablesChange(tunables.copy(maxRotationDeg = it)) }
+            readout = "${(tunables.perspectiveStrength * 100).roundToInt()}%",
+            value = tunables.perspectiveStrength,
+            range = 0f..1f,
+            help = "How much depth the tilt reveals (camera distance), not how far the frame leans."
+        ) { onTunablesChange(tunables.copy(perspectiveStrength = it)) }
 
         TuningSlider(
             label = "Blur",
@@ -252,6 +253,15 @@ private fun ControlPanel(
             range = 0f..0.9f,
             help = "How dark the frame goes at full tilt."
         ) { onTunablesChange(tunables.copy(maxDim = it)) }
+
+        Spacer(Modifier.height(8.dp))
+        TuningToggle(
+            label = "Flip tilt direction",
+            help = "If the frame leans the wrong way for how you tilt the phone, " +
+                "toggle this instead of editing code — the correct sign depends " +
+                "on this device's sensor axis convention.",
+            checked = tunables.flipTiltDirection
+        ) { onTunablesChange(tunables.copy(flipTiltDirection = it)) }
 
         Spacer(Modifier.height(24.dp))
         Text(
@@ -338,5 +348,28 @@ private fun TuningSlider(
         }
         Slider(value = value, onValueChange = onChange, valueRange = range)
         Text(help, fontSize = 11.sp, color = Color.White.copy(alpha = 0.45f))
+    }
+}
+
+@Composable
+private fun TuningToggle(
+    label: String,
+    help: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, fontSize = 14.sp, color = Color.White)
+            Text(help, fontSize = 11.sp, color = Color.White.copy(alpha = 0.45f))
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }

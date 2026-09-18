@@ -13,6 +13,8 @@ object FrameProcessor {
         val rotationXDeg: Float,
         val rotationYDeg: Float,
         val scale: Float,
+        /** In dp — OverlayController converts to px against the view's own density. */
+        val cameraDistanceDp: Float,
         val blurPx: Float,
         val dim: Float
     )
@@ -20,20 +22,45 @@ object FrameProcessor {
     /** Scale up slightly so the edges revealed by the 3D rotation stay covered. */
     private const val MAX_OVERSCAN = 0.05f
 
+    /**
+     * The rotation swing itself is fixed and modest. Depth reads through
+     * camera distance — how close the virtual eye is — not through how far
+     * the frame swings: a wide swing with a close camera looks like a
+     * flipping card, a small swing with a close camera looks like a window
+     * with real depth behind it, which is the effect wanted here.
+     */
+    private const val MAX_ROTATION_DEG = 8f
+
+    /** Camera-distance range the "Perspective" slider (0..1 strength) maps into. Lower distance = more dramatic depth. */
+    private const val MIN_CAMERA_DISTANCE_DP = 300f
+    private const val MAX_CAMERA_DISTANCE_DP = 3000f
+
     fun effectFor(deviationDeg: Float, tiltUpDeg: Float, tiltRightDeg: Float, tunables: Tunables): Effect {
         val span = (tunables.fullTiltDeg - tunables.activateDeg).coerceAtLeast(1f)
         val raw = ((deviationDeg - tunables.activateDeg) / span).coerceIn(0f, 1f)
         val intensity = raw * raw * (3f - 2f * raw)
 
-        val upward = (tiltUpDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
-        val rightward = (tiltRightDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
-        val swing = tunables.maxRotationDeg * intensity
+        val sign = if (tunables.flipTiltDirection) -1f else 1f
+        val upward = sign * (tiltUpDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
+        val rightward = sign * (tiltRightDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
+        val swing = MAX_ROTATION_DEG * intensity
 
-        // Flip either sign here if the image leans the wrong way on your phone.
+        // Inverted from the raw tilt direction on purpose: the content is
+        // anchored in a fixed plane and the phone is a moving viewport onto
+        // it, not a rigid card taped to the screen, so the frame should
+        // counter-rotate against the phone's own tilt.
+        val rotationXDeg = -upward * swing
+        val rotationYDeg = rightward * swing
+
+        val strength = tunables.perspectiveStrength.coerceIn(0f, 1f)
+        val cameraDistanceDp = MAX_CAMERA_DISTANCE_DP -
+            strength * (MAX_CAMERA_DISTANCE_DP - MIN_CAMERA_DISTANCE_DP)
+
         return Effect(
-            rotationXDeg = upward * swing,
-            rotationYDeg = -rightward * swing,
+            rotationXDeg = rotationXDeg,
+            rotationYDeg = rotationYDeg,
             scale = 1f + MAX_OVERSCAN * intensity,
+            cameraDistanceDp = cameraDistanceDp,
             blurPx = tunables.maxBlurPx * intensity,
             dim = tunables.maxDim * intensity
         )

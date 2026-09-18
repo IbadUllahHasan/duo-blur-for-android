@@ -38,6 +38,9 @@ class OverlayController(private val context: Context) {
         view.rotationY = effect.rotationYDeg
         view.scaleX = effect.scale
         view.scaleY = effect.scale
+        // Recomputed every call (not just once at attach) so the "Perspective"
+        // slider takes effect live while the service is running.
+        view.cameraDistance = context.resources.displayMetrics.density * effect.cameraDistanceDp
         view.setRenderEffect(
             if (effect.blurPx >= 1f) {
                 RenderEffect.createBlurEffect(effect.blurPx, effect.blurPx, Shader.TileMode.CLAMP)
@@ -60,9 +63,6 @@ class OverlayController(private val context: Context) {
         val container = FrameLayout(context).apply { setBackgroundColor(Color.BLACK) }
         val frameView = ImageView(context).apply {
             scaleType = ImageView.ScaleType.FIT_XY
-            // Larger camera distance than the default (1280 * density) keeps the
-            // perspective subtle rather than fish-eyed.
-            cameraDistance = context.resources.displayMetrics.density * CAMERA_DISTANCE_DP
         }
         val scrimView = View(context).apply {
             setBackgroundColor(Color.BLACK)
@@ -97,9 +97,5 @@ class OverlayController(private val context: Context) {
         root = container
         image = frameView
         scrim = scrimView
-    }
-
-    private companion object {
-        const val CAMERA_DISTANCE_DP = 2400f
     }
 }

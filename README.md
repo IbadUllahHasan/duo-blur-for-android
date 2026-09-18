@@ -26,9 +26,16 @@ real on-device testing can settle.
   surface. A gesture grabs exactly one frame and freezes it; re-reading the
   screen mid-gesture would capture the overlay itself and feed it back.
 - **`OverlayController`** — hardware-accelerated `TYPE_APPLICATION_OVERLAY`
-  window. Perspective comes from View `rotationX`/`rotationY`, blur from
-  `RenderEffect`, dimming from a scrim — all GPU-side, none of it re-drawing
-  the bitmap per frame.
+  window. Perspective comes from View `rotationX`/`rotationY` plus
+  `cameraDistance`, blur from `RenderEffect`, dimming from a scrim — all
+  GPU-side, none of it re-drawing the bitmap per frame.
+
+The frame leans *against* the phone's tilt, not with it — the content is
+meant to read as a fixed plane behind a moving viewport (like looking through
+a tilting window), not a rigid card taped to the screen. Because which sign
+counts as "against" depends on how a given device's sensors report axes,
+there's a "Flip tilt direction" switch in the app rather than a constant
+you'd have to find and edit per phone.
 
 While the effect is up it blocks touches on purpose: you're looking at a
 snapshot, so tapping "through" it would hit things you can't see. If tilt
@@ -43,17 +50,18 @@ it wants real-device testing:
 | --- | --- | --- |
 | Activation threshold | 12° | How far from neutral before the effect starts |
 | Full-tilt point | 30° | Deviation at which the effect hits full strength |
-| Perspective | 6° | How far the frame leans |
+| Perspective | 40% | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
 | Blur | 40px | Peak blur radius |
 | Dim | 55% | How dark it goes |
+| Flip tilt direction | off | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
 
 The effect releases at 60% of the activation threshold, so it can't flicker at
 the boundary. "Recalibrate" (in the app or on the notification) re-baselines
 neutral to however you're holding the phone right now.
 
-If the image leans the *wrong* way when you tilt, flip a sign in
-`FrameProcessor.effectFor` — that's the one parameter that depends on how your
-device reports orientation.
+If the frame leans the *wrong* way when you tilt, use the "Flip tilt
+direction" switch — don't edit code for this, it's exactly what the switch is
+for.
 
 ## Known constraints
 - The system's screen-recording indicator stays visible the whole time the
