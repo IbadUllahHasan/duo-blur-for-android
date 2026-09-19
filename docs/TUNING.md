@@ -4,6 +4,27 @@ Full detail on every slider in the app's Tuning section, plus a record of
 things that were investigated and ruled out (see the main
 [README](../README.md) for setup and general usage).
 
+## How the panel is organized
+
+Each card below Mode leads with one **simple dial** — a single slider that
+moves several real parameters together via a fixed low/high preset per
+parameter (e.g. dragging "Blur" moves Blur, Blur per mm, and Max blur radius
+at once). Nothing new is stored for the dial itself: it reads and writes the
+same parameters listed in the Advanced section underneath it, which is
+collapsed by default. Opening Advanced and adjusting a parameter by hand
+always takes effect immediately — the simple dial is a friendlier front end
+to the same values, not a separate setting that overrides them.
+
+| Card | Simple dial | Advanced (collapsed by default) |
+| --- | --- | --- |
+| Mode | Ray-traced fold / Classic (lean/scale) segmented control | *(none — nothing to hide)* |
+| Sensitivity | Sensitivity (deliberate ↔ easy trigger) + Flip tilt direction switch | Activation threshold, Full-tilt point |
+| Blur | Blur (sharp ↔ heavily blurred) | Blur, and in ray-traced mode also Blur per mm, Max blur radius |
+| Shadow | Shadow (bright ↔ nearly black) | Dim, and in ray-traced mode also Darken per mm, Max darken |
+| Depth | Depth (flat ↔ steep recede) | Ray-traced: View distance. Classic: Perspective, Recede, Motion Softness |
+| Finishing touches | *(none — just the accordion)* | Edge Fade, Corner Radius |
+| Haptics | Interface haptics switch, Fold haptics switch, Haptic strength | Engage, Release, Auto-release alert (each independently strength + on/off) |
+
 ## Every tunable parameter
 
 | Control | Default | Applies to | Toggle | What it does |
@@ -33,6 +54,24 @@ resetting or losing the value the slider is set to.
 back to its starting point in one tap, including re-detecting the device's
 actual corner radius rather than restoring whatever radius happened to be
 resolved the first time the app ran.
+
+## Haptics
+
+Two independent categories, each with its own on/off switch:
+
+- **Interface haptics** — a light tap when you drag a slider or flip a
+  switch inside this app. Purely a UI nicety; has no bearing on the fold
+  effect.
+- **Fold haptics** — a tactile cue tied to the tilt gesture itself: a crisp
+  "catch" when the effect engages, a softer cue when it releases, and a
+  distinct triple-tick when the 8-second safety auto-release fires (see
+  *Known limitations* in the README). A simple "Haptic strength" dial scales
+  all three together; Advanced breaks them out individually, each with its
+  own strength and on/off switch, same as any other Advanced slider.
+
+Devices whose vibration actuator doesn't support Android's richer
+composition-primitives API (introduced in Android 11) fall back to a plain
+amplitude-scaled buzz automatically — no setting to configure for that.
 
 ## Things that were investigated and can't be done
 
