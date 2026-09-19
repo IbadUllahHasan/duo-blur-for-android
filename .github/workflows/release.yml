@@ -13,6 +13,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # `secrets` isn't allowed inside `if:` conditionals, so resolve it to a
+      # plain env var here and branch on that instead below.
+      HAS_RELEASE_SIGNING_SECRETS: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,7 +33,7 @@ jobs:
           gradle-version: '8.7'
 
       - name: Decode release keystore
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_RELEASE_SIGNING_SECRETS == 'true' }}
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
       # Signed build: only runs once the four RELEASE_* secrets described in
@@ -37,7 +41,7 @@ jobs:
       # fallback below runs instead, so a release can still go out — just
       # debug-signed until the signing secrets are added.
       - name: Build signed release APK
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_RELEASE_SIGNING_SECRETS == 'true' }}
         env:
           RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
@@ -46,7 +50,7 @@ jobs:
         run: gradle assembleRelease --stacktrace
 
       - name: Build fallback debug APK (no signing secrets configured yet)
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 == '' }}
+        if: ${{ env.HAS_RELEASE_SIGNING_SECRETS != 'true' }}
         run: |
           echo "::warning::RELEASE_KEYSTORE_BASE64 isn't set, so this release is debug-signed instead of using a stable release key. See README.md's Release section to add the signing secrets."
           gradle assembleDebug --stacktrace
