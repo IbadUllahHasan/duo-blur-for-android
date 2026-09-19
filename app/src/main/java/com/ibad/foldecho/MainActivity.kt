@@ -14,6 +14,7 @@ import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -21,7 +22,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -50,11 +54,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -78,6 +78,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -263,44 +265,59 @@ private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
     }
 }
 
-/** Dark palette — surfaces step up in tone (background < surface < surfaceContainer). Glass cards use their own translucent tint on top of this via GlassPalette, not these surface colors directly. */
+/**
+ * Dark palette, remapped to Apple's iOS system-color values. `systemBlue` is
+ * live-verified (fetched a real iOS design-guideline dataset); the rest are
+ * extremely stable, independently well-known standard values unchanged since
+ * iOS 13, not each individually re-fetched here — the best third-party
+ * hex-reference sites were blocked by this environment's network policy and
+ * Apple's own docs are JS-rendered with no literal hex reachable.
+ * `background`/`onBackground` are pure black/white, matching Apple's `label`
+ * and unified with the locked GlassPalette.dotGridBackground (#090A0F) rather
+ * than adding a third near-but-not-quite-matching near-black to the app.
+ * `onSurfaceVariant`/`outlineVariant` use Apple's real alpha-based label
+ * hierarchy (a base colour + alpha, not a distinct hue) rather than a flat
+ * hex. `primaryContainer`/`onPrimaryContainer`/`surfaceVariant` have no Apple
+ * equivalent and aren't read anywhere in this app today (confirmed by grep) —
+ * reasonable Material3-convention values, low risk either way.
+ */
 private val FoldEchoDarkColors = darkColorScheme(
-    primary = Color(0xFF9ED6FF),
-    onPrimary = Color(0xFF00344E),
-    primaryContainer = Color(0xFF00496D),
+    primary = Color(0xFF0A84FF),              // systemBlue dark
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF003C6B),
     onPrimaryContainer = Color(0xFFCDE5FF),
-    secondary = Color(0xFFBAC8D8),
-    tertiary = Color(0xFFD3BFE0),
-    background = Color(0xFF0E0F13),
-    onBackground = Color(0xFFE4E2E6),
-    surface = Color(0xFF131318),
-    onSurface = Color(0xFFE4E2E6),
-    surfaceVariant = Color(0xFF42474E),
-    onSurfaceVariant = Color(0xFFC2C7CE),
-    surfaceContainer = Color(0xFF1B1C22),
-    surfaceContainerHigh = Color(0xFF23252C),
-    outline = Color(0xFF8C9199),
-    outlineVariant = Color(0xFF42474E)
+    secondary = Color(0xFF5E5CE6),            // systemIndigo dark
+    tertiary = Color(0xFF64D2FF),             // systemTeal dark
+    background = Color(0xFF090A0F),
+    onBackground = Color(0xFFFFFFFF),         // Apple `label` dark
+    surface = Color(0xFF1C1C1E),              // Apple secondarySystemBackground dark
+    onSurface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFF2C2C2E),
+    onSurfaceVariant = Color(0xFFEBEBF5).copy(alpha = 0.6f), // Apple secondaryLabel dark
+    surfaceContainer = Color(0xFF2C2C2E),     // Apple tertiarySystemBackground dark
+    surfaceContainerHigh = Color(0xFF3A3A3C),
+    outline = Color(0xFF38383A),              // Apple opaqueSeparator dark
+    outlineVariant = Color(0xFF545458).copy(alpha = 0.65f) // Apple separator dark
 )
 
-/** Light counterpart — not just an inverted dark theme; tuned separately so glass tint/specular actually read against a bright background instead of washing out. */
+/** Light counterpart, same Apple remap — see [FoldEchoDarkColors]'s doc comment for sourcing. */
 private val FoldEchoLightColors = lightColorScheme(
-    primary = Color(0xFF00618A),
+    primary = Color(0xFF007AFF),              // systemBlue light — live-verified
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFC4E7FF),
-    onPrimaryContainer = Color(0xFF001E2C),
-    secondary = Color(0xFF4C6172),
-    tertiary = Color(0xFF5F5470),
-    background = Color(0xFFF6F8FA),
-    onBackground = Color(0xFF1A1C1E),
-    surface = Color(0xFFFAFCFE),
-    onSurface = Color(0xFF1A1C1E),
-    surfaceVariant = Color(0xFFDCE3E9),
-    onSurfaceVariant = Color(0xFF41484D),
-    surfaceContainer = Color(0xFFEFF2F5),
-    surfaceContainerHigh = Color(0xFFE9ECEF),
-    outline = Color(0xFF72787E),
-    outlineVariant = Color(0xFFC1C7CD)
+    primaryContainer = Color(0xFFD6E8FF),
+    onPrimaryContainer = Color(0xFF00305A),
+    secondary = Color(0xFF5856D6),            // systemIndigo light
+    tertiary = Color(0xFF5AC8FA),             // systemTeal light
+    background = Color(0xFFFFFFFF),
+    onBackground = Color(0xFF000000),         // Apple `label` light
+    surface = Color(0xFFF2F2F7),              // Apple secondarySystemBackground light
+    onSurface = Color(0xFF000000),
+    surfaceVariant = Color(0xFFE5E5EA),
+    onSurfaceVariant = Color(0xFF3C3C43).copy(alpha = 0.6f), // Apple secondaryLabel light
+    surfaceContainer = Color(0xFFF2F2F7),     // Apple's tertiarySystemBackground light is #FFFFFF, same as background — reuses secondarySystemBackground instead
+    surfaceContainerHigh = Color(0xFFE5E5EA),
+    outline = Color(0xFFC6C6C8),              // Apple opaqueSeparator light
+    outlineVariant = Color(0xFF3C3C43).copy(alpha = 0.29f) // Apple separator light
 )
 
 /** Resolved once in MainActivity.onCreate and handed down so any control can give a light tap without threading a parameter through every call site. Null only before composition ever runs. */
@@ -324,9 +341,13 @@ private val LocalUiHapticsEnabled = compositionLocalOf { true }
  * feedback switched off, so there is deliberately no fallback in that case —
  * only pre-34 devices, which have no such constant at all, drop back to
  * HapticsController.
+ *
+ * Module-visible (not private) so GlassSwitch in Glass.kt can fire this
+ * directly — LocalHaptics/LocalUiHapticsEnabled stay private, this function
+ * still closes over them from within this same file.
  */
 @Composable
-private fun rememberToggleHaptic(): (Boolean) -> Unit {
+internal fun rememberToggleHaptic(): (Boolean) -> Unit {
     val view = LocalView.current
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
@@ -434,12 +455,24 @@ private fun ControlPanel(
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
-        DuoFlowWordmark()
-        Text(
-            "Tilt-driven Duo effect, system-wide",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                DuoFlowWordmark()
+                Text(
+                    "Tilt-driven Duo effect, system-wide",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            ThemeToggleButton(
+                mode = tunables.themeMode,
+                onModeChange = { onTunablesChange(tunables.copy(themeMode = it)) }
+            )
+        }
 
         Spacer(Modifier.height(20.dp))
         StatusCard(
@@ -488,7 +521,7 @@ private fun ControlPanel(
                     "This device is on Android 12 — ray-traced fold needs 13 or newer, " +
                         "so the classic renderer runs regardless of which is selected here.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFFFD79A)
+                    color = Color(0xFFFF9500) // Apple systemOrange
                 )
             }
         }
@@ -714,24 +747,6 @@ private fun ControlPanel(
 
         Spacer(Modifier.height(16.dp))
         TuningGroup {
-            SectionHeader("Appearance")
-
-            ThemeSelector(
-                mode = tunables.themeMode,
-                onSelect = { onTunablesChange(tunables.copy(themeMode = it)) }
-            )
-
-            Spacer(Modifier.height(10.dp))
-            Text(
-                "System follows your device's light/dark setting. Light and Dark pin the app " +
-                    "regardless of it — the glass tint, opacity and highlight differ between the two.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-            )
-        }
-
-        Spacer(Modifier.height(16.dp))
-        TuningGroup {
             SectionHeader("Haptics")
 
             TuningToggle(
@@ -916,6 +931,68 @@ private fun DuoFlowWordmark() {
     }
 }
 
+private fun nextThemeMode(mode: ThemeMode): ThemeMode = when (mode) {
+    ThemeMode.SYSTEM -> ThemeMode.DARK
+    ThemeMode.DARK -> ThemeMode.LIGHT
+    ThemeMode.LIGHT -> ThemeMode.SYSTEM
+}
+
+private fun glyphFor(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> "◐" // U+25D0 half-filled circle
+    ThemeMode.DARK -> "☾"   // U+263E
+    ThemeMode.LIGHT -> "☀"  // U+2600
+}
+
+/**
+ * Small circular glass button, trailing element of the header row —
+ * replaces the old three-way Appearance pill. Cycles ThemeMode in the
+ * order System -&gt; Dark -&gt; Light -&gt; System on tap, morphing its glyph with
+ * AnimatedContent. onTunablesChange already handles persistence and the
+ * window-background flash fix on any themeMode change, so this only needs
+ * to hand it the next mode.
+ */
+@Composable
+private fun ThemeToggleButton(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
+    val toggleHaptic = rememberToggleHaptic()
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
+    val next = nextThemeMode(mode)
+
+    GlassSurface(
+        shape = CircleShape,
+        modifier = Modifier
+            .size(40.dp)
+            .scale(pressScale)
+            .clickable(interactionSource = interactionSource, indication = null) {
+                // A 3-way cycle has no natural boolean the way a real switch
+                // does — pinning to Light/Dark reads as "the override turning
+                // on", returning to System as it turning back off.
+                toggleHaptic(next != ThemeMode.SYSTEM)
+                onModeChange(next)
+            }
+            .semantics {
+                contentDescription = "Theme: ${mode.name.lowercase()}, tap for ${next.name.lowercase()}"
+            }
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                targetState = mode,
+                transitionSpec = {
+                    (fadeIn() + scaleIn(initialScale = 0.6f)) togetherWith
+                        (fadeOut() + scaleOut(targetScale = 0.6f))
+                },
+                label = "themeModeGlyph"
+            ) { m ->
+                Text(
+                    text = glyphFor(m),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun SectionHeader(label: String) {
     Text(
@@ -967,55 +1044,6 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
     }
 }
 
-/**
- * Three-way sibling of [ModeSelector]: System / Light / Dark. Shares
- * [ModeOption] for the segments, so press-scale and haptics stay identical
- * between the two selectors.
- */
-@Composable
-private fun ThemeSelector(mode: ThemeMode, onSelect: (ThemeMode) -> Unit) {
-    GlassSurface(shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-            val optionWidth = maxWidth / 3
-            val selectedIndex = when (mode) {
-                ThemeMode.SYSTEM -> 0
-                ThemeMode.LIGHT -> 1
-                ThemeMode.DARK -> 2
-            }
-            val indicatorOffset by animateDpAsState(
-                targetValue = optionWidth * selectedIndex,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                label = "themeIndicator"
-            )
-            Box(
-                Modifier
-                    .offset(x = indicatorOffset)
-                    .width(optionWidth)
-                    .fillMaxHeight()
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-            Row(Modifier.fillMaxWidth()) {
-                ModeOption(
-                    label = "System",
-                    selected = mode == ThemeMode.SYSTEM,
-                    modifier = Modifier.weight(1f)
-                ) { onSelect(ThemeMode.SYSTEM) }
-                ModeOption(
-                    label = "Light",
-                    selected = mode == ThemeMode.LIGHT,
-                    modifier = Modifier.weight(1f)
-                ) { onSelect(ThemeMode.LIGHT) }
-                ModeOption(
-                    label = "Dark",
-                    selected = mode == ThemeMode.DARK,
-                    modifier = Modifier.weight(1f)
-                ) { onSelect(ThemeMode.DARK) }
-            }
-        }
-    }
-}
-
 @Composable
 private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val haptics = LocalHaptics.current
@@ -1049,10 +1077,9 @@ private fun StatusCard(
     onRecalibrate: () -> Unit,
     onGrantOverlay: () -> Unit
 ) {
-    val toggleHaptic = rememberToggleHaptic()
     val (label, dot) = when {
         effectActive -> "Effect active" to MaterialTheme.colorScheme.primary
-        running -> "Watching for tilt" to Color(0xFF4ADE80)
+        running -> "Watching for tilt" to Color(0xFF34C759) // Apple systemGreen
         else -> "Off" to MaterialTheme.colorScheme.outline
     }
 
@@ -1073,16 +1100,9 @@ private fun StatusCard(
                         fontWeight = FontWeight.Medium
                     )
                 }
-                Switch(
+                GlassSwitch(
                     checked = running,
-                    onCheckedChange = {
-                        toggleHaptic(it)
-                        onToggle()
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary
-                    )
+                    onCheckedChange = { onToggle() }
                 )
             }
 
@@ -1163,7 +1183,6 @@ private fun TuningSlider(
 ) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
-    val toggleHaptic = rememberToggleHaptic()
     val contentAlpha = if (enabled) 1f else 0.4f
     Column(Modifier.padding(vertical = 8.dp)) {
         Row(
@@ -1188,30 +1207,16 @@ private fun TuningSlider(
                 )
                 if (onEnabledChange != null) {
                     Spacer(Modifier.width(8.dp))
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = {
-                            toggleHaptic(it)
-                            onEnabledChange(it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
+                    GlassSwitch(checked = enabled, onCheckedChange = onEnabledChange)
                 }
             }
         }
-        Slider(
+        GlassSlider(
             value = value,
             onValueChange = onChange,
             onValueChangeFinished = { if (uiHapticsEnabled) haptics?.interfaceTick() },
             valueRange = range,
-            enabled = enabled,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary
-            )
+            enabled = enabled
         )
     }
 }
@@ -1223,7 +1228,6 @@ private fun TuningToggle(
     checked: Boolean,
     onChange: (Boolean) -> Unit
 ) {
-    val toggleHaptic = rememberToggleHaptic()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1237,16 +1241,6 @@ private fun TuningToggle(
             InfoTooltip(help)
         }
         Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = {
-                toggleHaptic(it)
-                onChange(it)
-            },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary
-            )
-        )
+        GlassSwitch(checked = checked, onCheckedChange = onChange)
     }
 }

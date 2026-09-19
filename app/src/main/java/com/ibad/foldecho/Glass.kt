@@ -1,23 +1,42 @@
 package com.ibad.foldecho
 
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
+import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kashif_e.backdrop.Backdrop
@@ -62,7 +81,11 @@ data class GlassPalette(
     val dotGridBackground: Color,
     val dotColor: Color,
     /** Colour(s) of every 4th dot, cycled in order. One colour for a single accent; several to alternate between them. */
-    val dotAccentColors: List<Color>
+    val dotAccentColors: List<Color>,
+    /** [GlassSwitch]'s "on" fill — Apple's systemGreen, the real iOS UISwitch colour. */
+    val switchOnTint: Color,
+    /** [GlassSwitch]'s "off" fill — a neutral overlay so the off track isn't invisible against a varying backdrop. Not an Apple-sourced value; a reasoned approximation. */
+    val switchOffTint: Color
 )
 
 /**
@@ -94,7 +117,9 @@ val DarkGlassPalette = GlassPalette(
     highlightWidth = 0.75.dp,
     dotGridBackground = Color(0xFF090A0F),
     dotColor = Color(0xFFE2E8F0).copy(alpha = 0.75f),
-    dotAccentColors = listOf(Color(0xFF38BDF8), Color(0xFFF59E0B))
+    dotAccentColors = listOf(Color(0xFF38BDF8), Color(0xFFF59E0B)),
+    switchOnTint = Color(0xFF30D158).copy(alpha = 0.92f),
+    switchOffTint = Color.White.copy(alpha = 0.14f)
 )
 
 /**
@@ -113,7 +138,9 @@ val LightGlassPalette = GlassPalette(
     highlightWidth = 0.75.dp,
     dotGridBackground = Color(0xFFFFFFFF),
     dotColor = Color(0xFF0F172A),
-    dotAccentColors = listOf(Color(0xFFEF4444))
+    dotAccentColors = listOf(Color(0xFFEF4444)),
+    switchOnTint = Color(0xFF34C759).copy(alpha = 0.92f),
+    switchOffTint = Color.Black.copy(alpha = 0.06f)
 )
 
 val LocalGlassPalette = compositionLocalOf { DarkGlassPalette }
@@ -204,6 +231,179 @@ fun GlassSurface(
         content()
     }
 }
+
+/**
+ * iOS-style pill switch: a real [GlassSurface] track — so it gets the same
+ * backdrop refraction/highlight every card gets, not a flat Material
+ * `Switch` — a white circular thumb, and an animated tint that shifts
+ * between [GlassPalette.switchOffTint] and [GlassPalette.switchOnTint] on
+ * check.
+ *
+ * Built on [Modifier.toggleable] rather than Material3's `Switch`: `Switch`
+ * exposes no swappable track slot, only colour tinting, and this needs the
+ * track to be a real glass surface. `toggleable` gives the same
+ * `Role.Switch` accessibility semantics and click target around the fully
+ * custom-drawn shape. Fires the platform toggle haptic itself via
+ * [rememberToggleHaptic] — callers only ever wire `checked`/`onCheckedChange`.
+ *
+ * Track/thumb sizing (51×31 track, 27dp thumb, 2dp inset) matches iOS's own
+ * `UISwitch` intrinsic size.
+ */
+@Composable
+fun GlassSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val palette = LocalGlassPalette.current
+    val toggleHaptic = rememberToggleHaptic()
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val trackTint by animateColorAsState(
+        targetValue = if (checked) palette.switchOnTint else palette.switchOffTint,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        label = "glassSwitchTrackTint"
+    )
+    val thumbOffset by animateDpAsState(
+        targetValue = if (checked) {
+            SWITCH_TRACK_WIDTH - SWITCH_THUMB_SIZE - SWITCH_THUMB_INSET
+        } else {
+            SWITCH_THUMB_INSET
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "glassSwitchThumbOffset"
+    )
+
+    GlassSurface(
+        shape = CircleShape,
+        modifier = modifier
+            .size(width = SWITCH_TRACK_WIDTH, height = SWITCH_TRACK_HEIGHT)
+            .alpha(if (enabled) 1f else 0.4f)
+            .toggleable(
+                value = checked,
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = {
+                    toggleHaptic(it)
+                    onCheckedChange(it)
+                }
+            )
+    ) {
+        // Layered on top of GlassSurface's own cardTint, under the thumb:
+        // the on/off colour this control needs is specific to it, not
+        // something every card should carry.
+        Box(Modifier.fillMaxSize().background(trackTint))
+        Box(
+            Modifier
+                .padding(start = thumbOffset, top = SWITCH_THUMB_INSET)
+                .size(SWITCH_THUMB_SIZE)
+                .shadow(elevation = 1.5.dp, shape = CircleShape, clip = false)
+                .background(Color.White, CircleShape)
+        )
+    }
+}
+
+private val SWITCH_TRACK_WIDTH = 51.dp
+private val SWITCH_TRACK_HEIGHT = 31.dp
+private val SWITCH_THUMB_SIZE = 27.dp
+private val SWITCH_THUMB_INSET = 2.dp
+
+/**
+ * iOS "Liquid Glass" style slider: a thick glass pill track with a solid
+ * fill up to the current value and a glassy/refractive remainder, plus a
+ * plain white circular thumb with a drop shadow.
+ *
+ * Built on Material3's non-deprecated `Slider(state=, thumb=, track=)`
+ * overload rather than the simpler `Slider(value=, onValueChange=, ...)`
+ * one `TuningSlider` used before — the deprecated overload has no track
+ * slot to customise, only `SliderColors` tinting, which can't produce the
+ * solid-fill/glassy-remainder split this needs.
+ *
+ * [rememberSliderState] only reads `value` on first composition (it's
+ * backed by `rememberSaveable`) and does not react to the external `value`
+ * parameter changing afterward. This app's "Reset to defaults" rewrites
+ * `Tunables` — and therefore this composable's `value` parameter — well
+ * after first composition, so without the `LaunchedEffect` below the thumb
+ * would visually freeze at its pre-reset position until dragged again.
+ */
+@Composable
+fun GlassSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onValueChangeFinished: (() -> Unit)? = null
+) {
+    val sliderState = rememberSliderState(value = value, trackRange = valueRange)
+
+    LaunchedEffect(value) {
+        if (sliderState.value != value) {
+            sliderState.value = value
+        }
+    }
+
+    Slider(
+        state = sliderState,
+        onValueChange = {
+            // Belt-and-braces: a harmless no-op if Slider's own internals
+            // already wrote this, a required assignment if they didn't —
+            // the exact internal contract wasn't fully pinned down against
+            // the library's source, so this covers either case.
+            sliderState.value = it
+            onValueChange(it)
+        },
+        onValueChangeFinished = onValueChangeFinished,
+        modifier = modifier,
+        enabled = enabled,
+        thumb = { GlassSliderThumb(enabled = enabled) },
+        track = { state -> GlassSliderTrack(state = state, enabled = enabled) }
+    )
+}
+
+@Composable
+private fun GlassSliderTrack(state: SliderState, enabled: Boolean) {
+    val fillColor = MaterialTheme.colorScheme.primary
+    val fraction = state.coercedValueAsFraction
+
+    GlassSurface(
+        shape = CircleShape,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(SLIDER_TRACK_HEIGHT)
+            .alpha(if (enabled) 1f else 0.4f)
+    ) {
+        // Fully opaque, so it completely covers the glass beneath it in the
+        // filled region — that's what makes the fill read as solid colour
+        // while the remainder stays glassy and refractive.
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .background(fillColor)
+        )
+    }
+}
+
+@Composable
+private fun GlassSliderThumb(enabled: Boolean) {
+    // Deliberately larger than the track (32dp thumb on a 28dp track) —
+    // Slider's layout measures and positions the thumb slot independently
+    // of the track's own bounds, so an oversized thumb isn't clipped.
+    Box(
+        Modifier
+            .alpha(if (enabled) 1f else 0.4f)
+            .size(SLIDER_THUMB_SIZE)
+            .shadow(elevation = 3.dp, shape = CircleShape, clip = false)
+            .background(Color.White, CircleShape)
+    )
+}
+
+private val SLIDER_TRACK_HEIGHT = 28.dp
+private val SLIDER_THUMB_SIZE = 32.dp
 
 /**
  * The backdrop every glass card samples: a high-density micro-dot matrix —
