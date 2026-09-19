@@ -31,12 +31,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -48,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -96,7 +100,7 @@ class MainActivity : ComponentActivity() {
                 val effectActive by FoldEchoState.effectActive.collectAsState()
                 val deviation by FoldEchoState.deviationDeg.collectAsState()
 
-                Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF0B0B0F)) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     ControlPanel(
                         running = running,
                         effectActive = effectActive,
@@ -151,11 +155,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** A dark, tonal Material You-style palette — surfaces step up in tone (background < surface < surfaceContainer) instead of the flat single-surface-color scheme this used to be. */
 private val FoldEchoColors = darkColorScheme(
-    primary = Color(0xFF7DD3FC),
-    onPrimary = Color(0xFF06283D),
-    surface = Color(0xFF15161D),
-    onSurface = Color(0xFFE8E8EE)
+    primary = Color(0xFF9ED6FF),
+    onPrimary = Color(0xFF00344E),
+    primaryContainer = Color(0xFF00496D),
+    onPrimaryContainer = Color(0xFFCDE5FF),
+    secondary = Color(0xFFBAC8D8),
+    tertiary = Color(0xFFD3BFE0),
+    background = Color(0xFF0E0F13),
+    onBackground = Color(0xFFE4E2E6),
+    surface = Color(0xFF131318),
+    onSurface = Color(0xFFE4E2E6),
+    surfaceVariant = Color(0xFF42474E),
+    onSurfaceVariant = Color(0xFFC2C7CE),
+    surfaceContainer = Color(0xFF1B1C22),
+    surfaceContainerHigh = Color(0xFF23252C),
+    outline = Color(0xFF8C9199),
+    outlineVariant = Color(0xFF42474E)
 )
 
 @Composable
@@ -175,13 +192,18 @@ private fun ControlPanel(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(20.dp)
+            .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
-        Text("FoldEcho", fontSize = 28.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        Text(
+            "FoldEcho",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
         Text(
             "Tilt-driven Duo effect, system-wide",
-            fontSize = 13.sp,
-            color = Color.White.copy(alpha = 0.6f)
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         Spacer(Modifier.height(20.dp))
@@ -189,26 +211,40 @@ private fun ControlPanel(
 
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Button(onClick = onToggle, modifier = Modifier.weight(1f)) {
+            Button(
+                onClick = onToggle,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
                 Text(if (running) "Disable" else "Enable")
             }
             Spacer(Modifier.width(12.dp))
-            OutlinedButton(onClick = onRecalibrate, enabled = running, modifier = Modifier.weight(1f)) {
+            OutlinedButton(
+                onClick = onRecalibrate,
+                enabled = running,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
                 Text("Recalibrate")
             }
         }
 
         if (!canDrawOverlays) {
             Spacer(Modifier.height(12.dp))
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF3B2A12))) {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF3B2A12))
+            ) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
                         "\"Display over other apps\" is off — the effect can't draw without it.",
-                        fontSize = 13.sp,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = Color(0xFFFFD79A)
                     )
                     Spacer(Modifier.height(8.dp))
-                    OutlinedButton(onClick = onGrantOverlay) { Text("Grant permission") }
+                    OutlinedButton(onClick = onGrantOverlay, shape = RoundedCornerShape(12.dp)) {
+                        Text("Grant permission")
+                    }
                 }
             }
         }
@@ -219,163 +255,203 @@ private fun ControlPanel(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Tuning", fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            Text(
+                "Tuning",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
             TextButton(onClick = onResetTunables) { Text("Reset to defaults") }
         }
         Text(
-            "Adjustments apply immediately, even while the effect is running.",
-            fontSize = 12.sp,
-            color = Color.White.copy(alpha = 0.55f)
+            "Adjustments apply immediately, even while the effect is running. Each slider's " +
+                "switch turns that parameter off without losing its value.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(14.dp))
 
-        ModeSelector(
-            usingFold = tunables.foldShaderEnabled,
-            onSelect = { onTunablesChange(tunables.copy(foldShaderEnabled = it)) }
-        )
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            Text(
-                "This device is on Android 12 — ray-traced fold needs 13 or newer, " +
-                    "so the classic renderer runs regardless of which is selected here.",
-                fontSize = 11.sp,
-                color = Color(0xFFFFD79A)
+        TuningGroup {
+            ModeSelector(
+                usingFold = tunables.foldShaderEnabled,
+                onSelect = { onTunablesChange(tunables.copy(foldShaderEnabled = it)) }
             )
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "This device is on Android 12 — ray-traced fold needs 13 or newer, " +
+                        "so the classic renderer runs regardless of which is selected here.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFFFD79A)
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            TuningSlider(
+                label = "Activation threshold",
+                readout = "${tunables.activateDeg.roundToInt()}°",
+                value = tunables.activateDeg,
+                range = 4f..30f,
+                help = "How far from neutral before the effect kicks in."
+            ) { onTunablesChange(tunables.copy(activateDeg = it)) }
+
+            TuningSlider(
+                label = "Full-tilt point",
+                readout = "${tunables.fullTiltDeg.roundToInt()}°",
+                value = tunables.fullTiltDeg,
+                range = 15f..60f,
+                help = "Deviation at which the effect reaches full strength."
+            ) { onTunablesChange(tunables.copy(fullTiltDeg = it)) }
         }
-        Spacer(Modifier.height(16.dp))
-
-        TuningSlider(
-            label = "Activation threshold",
-            readout = "${tunables.activateDeg.roundToInt()}°",
-            value = tunables.activateDeg,
-            range = 4f..30f,
-            help = "How far from neutral before the effect kicks in."
-        ) { onTunablesChange(tunables.copy(activateDeg = it)) }
-
-        TuningSlider(
-            label = "Full-tilt point",
-            readout = "${tunables.fullTiltDeg.roundToInt()}°",
-            value = tunables.fullTiltDeg,
-            range = 15f..60f,
-            help = "Deviation at which the effect reaches full strength."
-        ) { onTunablesChange(tunables.copy(fullTiltDeg = it)) }
 
         Spacer(Modifier.height(16.dp))
         if (tunables.foldShaderEnabled) {
-            SectionHeader("Ray-traced fold")
+            TuningGroup {
+                SectionHeader("Ray-traced fold")
 
-            TuningSlider(
-                label = "View distance",
-                readout = "${tunables.viewDistanceMm.roundToInt()}mm",
-                value = tunables.viewDistanceMm,
-                range = 100f..600f,
-                help = "How far the eye sits from the content plane. Closer is a more extreme perspective."
-            ) { onTunablesChange(tunables.copy(viewDistanceMm = it)) }
+                TuningSlider(
+                    label = "View distance",
+                    readout = "${tunables.viewDistanceMm.roundToInt()}mm",
+                    value = tunables.viewDistanceMm,
+                    range = 100f..600f,
+                    help = "How far the eye sits from the content plane. Closer is a more extreme perspective.",
+                    enabled = tunables.viewDistanceEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(viewDistanceEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(viewDistanceMm = it)) }
 
-            TuningSlider(
-                label = "Blur per mm",
-                readout = "${"%.1f".format(tunables.blurPerMm)}px",
-                value = tunables.blurPerMm,
-                range = 0f..6f,
-                help = "Blur radius gained per mm of gap between the glass and the plane."
-            ) { onTunablesChange(tunables.copy(blurPerMm = it)) }
+                TuningSlider(
+                    label = "Blur per mm",
+                    readout = "${"%.1f".format(tunables.blurPerMm)}px",
+                    value = tunables.blurPerMm,
+                    range = 0f..6f,
+                    help = "Blur radius gained per mm of gap between the glass and the plane.",
+                    enabled = tunables.blurPerMmEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(blurPerMmEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(blurPerMm = it)) }
 
-            TuningSlider(
-                label = "Max blur radius",
-                readout = "${tunables.maxBlurRadiusPx.roundToInt()}px",
-                value = tunables.maxBlurRadiusPx,
-                range = 0f..96f,
-                help = "Ceiling on that radius, so a steep tilt can't melt the whole frame."
-            ) { onTunablesChange(tunables.copy(maxBlurRadiusPx = it)) }
+                TuningSlider(
+                    label = "Max blur radius",
+                    readout = "${tunables.maxBlurRadiusPx.roundToInt()}px",
+                    value = tunables.maxBlurRadiusPx,
+                    range = 0f..96f,
+                    help = "Ceiling on that radius, so a steep tilt can't melt the whole frame.",
+                    enabled = tunables.maxBlurRadiusEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(maxBlurRadiusEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(maxBlurRadiusPx = it)) }
 
-            TuningSlider(
-                label = "Darken per mm",
-                readout = "${"%.1f".format(tunables.darkenPerMm * 100)}%",
-                value = tunables.darkenPerMm,
-                range = 0f..0.1f,
-                help = "Light lost per mm of that same gap — frosted glass absorbing as it scatters."
-            ) { onTunablesChange(tunables.copy(darkenPerMm = it)) }
+                TuningSlider(
+                    label = "Darken per mm",
+                    readout = "${"%.1f".format(tunables.darkenPerMm * 100)}%",
+                    value = tunables.darkenPerMm,
+                    range = 0f..0.1f,
+                    help = "Light lost per mm of that same gap — frosted glass absorbing as it scatters.",
+                    enabled = tunables.darkenPerMmEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(darkenPerMmEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(darkenPerMm = it)) }
 
-            TuningSlider(
-                label = "Max darken",
-                readout = "${(tunables.maxDarken * 100).roundToInt()}%",
-                value = tunables.maxDarken,
-                range = 0f..1f,
-                help = "Ceiling on that loss, so the far edge keeps some detail before it goes black."
-            ) { onTunablesChange(tunables.copy(maxDarken = it)) }
+                TuningSlider(
+                    label = "Max darken",
+                    readout = "${(tunables.maxDarken * 100).roundToInt()}%",
+                    value = tunables.maxDarken,
+                    range = 0f..1f,
+                    help = "Ceiling on that loss, so the far edge keeps some detail before it goes black.",
+                    enabled = tunables.maxDarkenEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(maxDarkenEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(maxDarken = it)) }
+            }
         } else {
-            SectionHeader("Classic (lean/scale)")
+            TuningGroup {
+                SectionHeader("Classic (lean/scale)")
 
-            TuningSlider(
-                label = "Perspective",
-                readout = "${(tunables.perspectiveStrength * 100).roundToInt()}%",
-                value = tunables.perspectiveStrength,
-                range = 0f..1f,
-                help = "How much depth the tilt reveals (camera distance), not how far the frame leans."
-            ) { onTunablesChange(tunables.copy(perspectiveStrength = it)) }
+                TuningSlider(
+                    label = "Perspective",
+                    readout = "${(tunables.perspectiveStrength * 100).roundToInt()}%",
+                    value = tunables.perspectiveStrength,
+                    range = 0f..1f,
+                    help = "How much depth the tilt reveals (camera distance), not how far the frame leans.",
+                    enabled = tunables.perspectiveEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(perspectiveEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(perspectiveStrength = it)) }
 
-            TuningSlider(
-                label = "Recede",
-                readout = "${(tunables.maxShrink * 100).roundToInt()}%",
-                value = tunables.maxShrink,
-                range = 0f..0.3f,
-                help = "How much the frame shrinks at full tilt, paired with the lean — " +
-                    "sells a plane receding into distance rather than a flat zoom."
-            ) { onTunablesChange(tunables.copy(maxShrink = it)) }
+                TuningSlider(
+                    label = "Recede",
+                    readout = "${(tunables.maxShrink * 100).roundToInt()}%",
+                    value = tunables.maxShrink,
+                    range = 0f..0.3f,
+                    help = "How much the frame shrinks at full tilt, paired with the lean — " +
+                        "sells a plane receding into distance rather than a flat zoom.",
+                    enabled = tunables.maxShrinkEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(maxShrinkEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(maxShrink = it)) }
 
-            TuningSlider(
-                label = "Motion Softness",
-                readout = "${(tunables.motionSoftness * 100).roundToInt()}%",
-                value = tunables.motionSoftness,
-                range = 0f..1f,
-                help = "Spring damping on the lean/recede motion. Low is a light settle; high overshoots and bounces."
-            ) { onTunablesChange(tunables.copy(motionSoftness = it)) }
+                TuningSlider(
+                    label = "Motion Softness",
+                    readout = "${(tunables.motionSoftness * 100).roundToInt()}%",
+                    value = tunables.motionSoftness,
+                    range = 0f..1f,
+                    help = "Spring damping on the lean/recede motion. Low is a light settle; high overshoots and bounces.",
+                    enabled = tunables.motionSoftnessEnabled,
+                    onEnabledChange = { onTunablesChange(tunables.copy(motionSoftnessEnabled = it)) }
+                ) { onTunablesChange(tunables.copy(motionSoftness = it)) }
+            }
         }
 
         Spacer(Modifier.height(16.dp))
-        SectionHeader("Shared")
+        TuningGroup {
+            SectionHeader("Shared")
 
-        TuningSlider(
-            label = "Blur",
-            readout = "${tunables.maxBlurPx.roundToInt()}px",
-            value = tunables.maxBlurPx,
-            range = 0f..80f,
-            help = "Peak blur radius at full tilt, graded from none at the hinge edge to full strength at the far edge."
-        ) { onTunablesChange(tunables.copy(maxBlurPx = it)) }
+            TuningSlider(
+                label = "Blur",
+                readout = "${tunables.maxBlurPx.roundToInt()}px",
+                value = tunables.maxBlurPx,
+                range = 0f..80f,
+                help = "Peak blur radius at full tilt, graded from none at the hinge edge to full strength at the far edge.",
+                enabled = tunables.maxBlurPxEnabled,
+                onEnabledChange = { onTunablesChange(tunables.copy(maxBlurPxEnabled = it)) }
+            ) { onTunablesChange(tunables.copy(maxBlurPx = it)) }
 
-        TuningSlider(
-            label = "Dim",
-            readout = "${(tunables.maxDim * 100).roundToInt()}%",
-            value = tunables.maxDim,
-            range = 0f..0.9f,
-            help = "How dark the frame goes at full tilt."
-        ) { onTunablesChange(tunables.copy(maxDim = it)) }
+            TuningSlider(
+                label = "Dim",
+                readout = "${(tunables.maxDim * 100).roundToInt()}%",
+                value = tunables.maxDim,
+                range = 0f..0.9f,
+                help = "How dark the frame goes at full tilt.",
+                enabled = tunables.maxDimEnabled,
+                onEnabledChange = { onTunablesChange(tunables.copy(maxDimEnabled = it)) }
+            ) { onTunablesChange(tunables.copy(maxDim = it)) }
 
-        TuningSlider(
-            label = "Edge Fade",
-            readout = "${(tunables.edgeFadeStrength * 100).roundToInt()}%",
-            value = tunables.edgeFadeStrength,
-            range = 0f..1f,
-            help = "Alpha gradient from opaque center to transparent edge, strength scaling with tilt."
-        ) { onTunablesChange(tunables.copy(edgeFadeStrength = it)) }
+            TuningSlider(
+                label = "Edge Fade",
+                readout = "${(tunables.edgeFadeStrength * 100).roundToInt()}%",
+                value = tunables.edgeFadeStrength,
+                range = 0f..1f,
+                help = "Alpha gradient from opaque center to transparent edge, strength scaling with tilt.",
+                enabled = tunables.edgeFadeEnabled,
+                onEnabledChange = { onTunablesChange(tunables.copy(edgeFadeEnabled = it)) }
+            ) { onTunablesChange(tunables.copy(edgeFadeStrength = it)) }
 
-        TuningSlider(
-            label = "Corner Radius",
-            readout = "${(tunables.cornerRadiusStrength * 100).roundToInt()}% · " +
-                "${(tunables.cornerRadiusStrength * tunables.cornerRadiusBaseDp).roundToInt()}dp",
-            value = tunables.cornerRadiusStrength,
-            range = 0f..1f,
-            help = "Fraction of this device's actual screen-corner radius " +
-                "(${tunables.cornerRadiusBaseDp.roundToInt()}dp detected). 100% matches the real corners."
-        ) { onTunablesChange(tunables.copy(cornerRadiusStrength = it)) }
+            TuningSlider(
+                label = "Corner Radius",
+                readout = "${(tunables.cornerRadiusStrength * 100).roundToInt()}% · " +
+                    "${(tunables.cornerRadiusStrength * tunables.cornerRadiusBaseDp).roundToInt()}dp",
+                value = tunables.cornerRadiusStrength,
+                range = 0f..1f,
+                help = "Fraction of this device's actual screen-corner radius " +
+                    "(${tunables.cornerRadiusBaseDp.roundToInt()}dp detected). 100% matches the real corners.",
+                enabled = tunables.cornerRadiusEnabled,
+                onEnabledChange = { onTunablesChange(tunables.copy(cornerRadiusEnabled = it)) }
+            ) { onTunablesChange(tunables.copy(cornerRadiusStrength = it)) }
 
-        Spacer(Modifier.height(8.dp))
-        TuningToggle(
-            label = "Flip tilt direction",
-            help = "If the frame leans the wrong way for how you tilt the phone, " +
-                "toggle this instead of editing code — the correct sign depends " +
-                "on this device's sensor axis convention.",
-            checked = tunables.flipTiltDirection
-        ) { onTunablesChange(tunables.copy(flipTiltDirection = it)) }
+            Spacer(Modifier.height(4.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            Spacer(Modifier.height(4.dp))
+            TuningToggle(
+                label = "Flip tilt direction",
+                help = "Turn this on if the frame ever leans the opposite way from how you tilt the phone.",
+                checked = tunables.flipTiltDirection
+            ) { onTunablesChange(tunables.copy(flipTiltDirection = it)) }
+        }
 
         Spacer(Modifier.height(24.dp))
         Text(
@@ -383,10 +459,21 @@ private fun ControlPanel(
                 "that's the cost of holding one capture session open instead of asking " +
                 "for consent on every tilt. Apps that block screenshots (banking, " +
                 "password managers, DRM video) will show black instead of their content.",
-            fontSize = 12.sp,
-            color = Color.White.copy(alpha = 0.45f)
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
         )
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** The tonal card shell every tuning section shares — one consistent rounded surface instead of bare Columns with a text label above them. */
+@Composable
+private fun TuningGroup(content: @Composable () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Column(Modifier.padding(16.dp)) { content() }
     }
 }
 
@@ -394,22 +481,27 @@ private fun ControlPanel(
 private fun SectionHeader(label: String) {
     Text(
         label,
-        fontSize = 13.sp,
+        style = MaterialTheme.typography.labelLarge,
         fontWeight = FontWeight.Medium,
-        color = Color(0xFF7DD3FC),
-        modifier = Modifier.padding(bottom = 4.dp)
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(bottom = 8.dp)
     )
 }
 
 @Composable
 private fun ModeSelector(usingFold: Boolean, onSelect: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .padding(4.dp)
+    ) {
         ModeOption(
             label = "Ray-traced fold",
             selected = usingFold,
             modifier = Modifier.weight(1f)
         ) { onSelect(true) }
-        Spacer(Modifier.width(8.dp))
         ModeOption(
             label = "Classic (lean/scale)",
             selected = !usingFold,
@@ -420,14 +512,14 @@ private fun ModeSelector(usingFold: Boolean, onSelect: (Boolean) -> Unit) {
 
 @Composable
 private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val background = if (selected) Color(0xFF7DD3FC) else Color(0xFF15161D)
-    val foreground = if (selected) Color(0xFF06283D) else Color.White.copy(alpha = 0.7f)
+    val background = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val foreground = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
             .background(background)
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 11.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(label, color = foreground, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -442,17 +534,25 @@ private fun StatusCard(
     tunables: Tunables
 ) {
     val (label, dot) = when {
-        effectActive -> "Effect active" to Color(0xFF7DD3FC)
+        effectActive -> "Effect active" to MaterialTheme.colorScheme.primary
         running -> "Watching for tilt" to Color(0xFF4ADE80)
-        else -> "Off" to Color(0xFF6B7280)
+        else -> "Off" to MaterialTheme.colorScheme.outline
     }
 
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF15161D))) {
-        Column(Modifier.padding(16.dp)) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Column(Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(dot))
                 Spacer(Modifier.width(10.dp))
-                Text(label, fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                Text(
+                    label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -460,11 +560,15 @@ private fun StatusCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Tilt from neutral", fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f))
+                Text(
+                    "Tilt from neutral",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 Text(
                     if (running) "${"%.1f".format(deviationDeg)}°" else "—",
-                    fontSize = 13.sp,
-                    color = Color.White
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
             Spacer(Modifier.height(8.dp))
@@ -475,18 +579,25 @@ private fun StatusCard(
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp)),
                 color = dot,
-                trackColor = Color.White.copy(alpha = 0.1f)
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
             )
             Spacer(Modifier.height(6.dp))
             Text(
                 "Triggers past ${tunables.activateDeg.roundToInt()}°",
-                fontSize = 11.sp,
-                color = Color.White.copy(alpha = 0.4f)
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
             )
         }
     }
 }
 
+/**
+ * A tuning row: label, live readout, and — for every slider except Activation
+ * threshold and Full-tilt point, which always apply — a compact switch that
+ * turns this one parameter off without discarding its dialed-in value.
+ * [enabled] defaults to true and [onEnabledChange] to null so those two
+ * sliders can call this without opting into a switch at all.
+ */
 @Composable
 private fun TuningSlider(
     label: String,
@@ -494,18 +605,57 @@ private fun TuningSlider(
     value: Float,
     range: ClosedFloatingPointRange<Float>,
     help: String,
+    enabled: Boolean = true,
+    onEnabledChange: ((Boolean) -> Unit)? = null,
     onChange: (Float) -> Unit
 ) {
-    Column(Modifier.padding(vertical = 6.dp)) {
+    val contentAlpha = if (enabled) 1f else 0.4f
+    Column(Modifier.padding(vertical = 8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(label, fontSize = 14.sp, color = Color.White)
-            Text(readout, fontSize = 14.sp, color = Color(0xFF7DD3FC))
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    readout,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = contentAlpha)
+                )
+                if (onEnabledChange != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = enabled,
+                        onCheckedChange = onEnabledChange,
+                        modifier = Modifier.scale(0.75f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                            checkedTrackColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+                }
+            }
         }
-        Slider(value = value, onValueChange = onChange, valueRange = range)
-        Text(help, fontSize = 11.sp, color = Color.White.copy(alpha = 0.45f))
+        Slider(
+            value = value,
+            onValueChange = onChange,
+            valueRange = range,
+            enabled = enabled,
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary
+            )
+        )
+        Text(
+            help,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha * 0.85f)
+        )
     }
 }
 
@@ -524,10 +674,17 @@ private fun TuningToggle(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, fontSize = 14.sp, color = Color.White)
-            Text(help, fontSize = 11.sp, color = Color.White.copy(alpha = 0.45f))
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Text(help, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(12.dp))
-        Switch(checked = checked, onCheckedChange = onChange)
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary
+            )
+        )
     }
 }

@@ -28,11 +28,18 @@ object FrameProcessor {
         /** 0..1 alpha for the edge-fade overlay; scales with tilt magnitude just like [dim]. */
         val edgeFadeAlpha: Float,
 
-        /** Signed fold angle for the ray-traced renderer, eased in by [intensity] so it doesn't pop at the activation threshold. */
+        /** Fold angle magnitude for the ray-traced renderer, eased in by [intensity] so it doesn't pop at the activation threshold. Sign doesn't matter — the shader only reads its absolute value; direction comes from [directionUp]/[directionRight] instead. */
         val foldTiltDeg: Float,
-        /** 0 = the glass hinges on a vertical edge (left/right), 1 = a horizontal one (top/bottom). */
+        /**
+         * 0 = a vertical edge (left/right), 1 = a horizontal one (top/bottom).
+         * A discrete axis pick used only by the classic renderer's graded-blur
+         * mask (OverlayController.blurMaskFor), which draws a straight
+         * gradient and so needs one edge to align it to. The ray-traced
+         * shader's own hinge is continuous now — see [directionUp]/
+         * [directionRight] — and no longer reads this.
+         */
         val hingeAxis: Float,
-        /** -1 = hinge on the left/top edge, +1 = right/bottom. */
+        /** -1 = hinge on the left/top edge, +1 = right/bottom. Same graded-blur-mask-only scope as [hingeAxis]. */
         val hingeSide: Float,
 
         /**
@@ -64,39 +71,34 @@ object FrameProcessor {
         val intensity = raw * raw * (3f - 2f * raw)
 
         val sign = if (tunables.flipTiltDirection) -1f else 1f
-        // TiltTracker's "up" is sensor convention: positive means tilted
-        // toward the top of the phone. View.rotationX's local axis runs the
-        // other way (screen-space Y increases downward), so pitch needs an
-        // extra negation roll doesn't — sensor-X and screen-X both point
-        // right, so there's no equivalent flip for "rightward." This is
-        // separate from `sign`, which both axes still share below for the
-        // "content is a fixed plane" counter-rotation itself.
-        //
-        // Flagging the confidence level on this one: it's the third attempt
-        // at this exact sign (see git log on this file), the first two both
-        // reported wrong on-device. This time it's a specific, named cause
-        // rather than another blind flip, but it still hasn't been verified
-        // against real hardware from here. If up/down is still backwards,
-        // "Flip tilt direction" corrects it immediately without a rebuild.
+        // pitchSign matches roll's own sign convention: `upward` and
+        // `rightward` both feed the pivot (applyHingePivot) and the
+        // ray-traced shader's hinge-side pick the same way, and that pairing
+        // is confirmed correct on-device for both axes — so `upward` itself
+        // is not the thing to flip.
         val pitchSign = -sign
         val upward = pitchSign * (tiltUpDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
         val rightward = sign * (tiltRightDeg / tunables.fullTiltDeg).coerceIn(-1f, 1f)
         val swing = MAX_ROTATION_DEG * intensity
 
-        // Both axes counter-rotate against the raw tilt direction: the
-        // content is anchored in a fixed plane and the phone is a moving
-        // viewport onto it, not a rigid card taped to the screen. Tilting
-        // left reveals black on the right; tilting up should reveal black on
-        // the bottom the same way — that symmetry is already folded into
-        // `upward` above via pitchSign, so both lines here read identically.
-        val rotationXDeg = upward * swing
+        // Classic mode's own lean transform, separate from `upward`/
+        // `rightward` above. Roll's rotationYDeg matches `rightward`'s sign
+        // directly and is confirmed correct; pitch's rotationXDeg needed the
+        // opposite relationship to read correctly on-device — View's
+        // rotationX and rotationY don't share a sign convention the way
+        // sensor pitch/roll do, so this negation is specific to the classic
+        // renderer's lean and does not apply to `upward` itself (which stays
+        // shared, correctly, with the pivot and the ray-traced shader).
+        val rotationXDeg = -upward * swing
         val rotationYDeg = rightward * swing
 
         // Classic mode only in practice — OverlayController ignores this
         // whenever the fold shader is driving the geometry instead — but
         // computed unconditionally, since there's no separate enable flag
-        // for it anymore, only the fold/classic mode selector.
-        val strength = tunables.perspectiveStrength.coerceIn(0f, 1f)
+        // for it anymore, only the fold/classic mode selector. Disabling the
+        // "Perspective" toggle treats strength as 0 (camera all the way out,
+        // i.e. no perspective) without losing the dialed-in slider value.
+        val strength = (if (tunables.perspectiveEnabled) tunables.perspectiveStrength else 0f).coerceIn(0f, 1f)
         val cameraDistanceDp =
             MAX_CAMERA_DISTANCE_DP - strength * (MAX_CAMERA_DISTANCE_DP - MIN_CAMERA_DISTANCE_DP)
 
@@ -105,19 +107,21 @@ object FrameProcessor {
         // frame leans AND recedes together, which is what sells "distant
         // fixed plane" instead of "flat zoom." The black behind it (the
         // overlay's own container background) does the rest.
-        val scale = 1f - tunables.maxShrink.coerceIn(0f, 0.9f) * intensity
+        val shrink = if (tunables.maxShrinkEnabled) tunables.maxShrink else 0f
+        val scale = 1f - shrink.coerceIn(0f, 0.9f) * intensity
 
-        val blurPx = tunables.maxBlurPx * intensity
-        val dim = tunables.maxDim * intensity
-        val edgeFadeAlpha = tunables.edgeFadeStrength.coerceIn(0f, 1f) * intensity
+        val blurPx = (if (tunables.maxBlurPxEnabled) tunables.maxBlurPx else 0f) * intensity
+        val dim = (if (tunables.maxDimEnabled) tunables.maxDim else 0f) * intensity
+        val edgeFadeStrength = if (tunables.edgeFadeEnabled) tunables.edgeFadeStrength else 0f
+        val edgeFadeAlpha = edgeFadeStrength.coerceIn(0f, 1f) * intensity
 
-        // Which screen edge the ray-traced shader hinges on: whichever axis
-        // currently leans further, and which way — a discrete pick, since
-        // that model only supports one hinge edge at a time. The classic
-        // renderer doesn't use this; its pivot sweeps continuously off
-        // directionUp/directionRight below instead, which is what avoids the
-        // jump this discrete choice would otherwise cause when pitch and
-        // roll trade off which one dominates.
+        // Which screen edge the graded-blur mask (classic renderer only)
+        // hinges on: whichever axis currently leans further, and which way —
+        // a discrete pick, since a straight gradient can only align to one
+        // edge at a time. The ray-traced shader doesn't use this anymore;
+        // its hinge sweeps continuously off directionUp/directionRight
+        // below, which is what avoids the jump this discrete choice would
+        // otherwise cause when pitch and roll trade off which one dominates.
         val signedUp = pitchSign * tiltUpDeg
         val signedRight = sign * tiltRightDeg
         val pitchDominates = abs(signedUp) > abs(signedRight)
@@ -135,7 +139,7 @@ object FrameProcessor {
             blurPx = blurPx,
             dim = dim,
             edgeFadeAlpha = edgeFadeAlpha,
-            foldTiltDeg = axisTiltDeg * intensity,
+            foldTiltDeg = deviationDeg * intensity,
             hingeAxis = if (pitchDominates) 1f else 0f,
             hingeSide = hingeSide,
             directionUp = upward,

@@ -7,8 +7,10 @@
 //   screen plane).
 // - The eye is stationary on that plane's normal through the screen centre,
 //   eyeDistancePx back from the plane.
-// - The glass rotates by tiltDegrees around a hinge edge, resolved at runtime
-//   from whichever tilt axis currently dominates and which way it leans.
+// - The glass rotates by tiltDegrees around a hinge line perpendicular to
+//   tiltDir, continuously — not snapped to one of the four screen edges —
+//   so the hinge sweeps smoothly as pitch and roll trade off which one leans
+//   further, instead of jumping when the dominant axis changes.
 // - Per pixel: a ray from the eye through the glass point continues on to the
 //   content plane. Blur and darkening grow with the glass-to-plane gap, and a
 //   ray whose whole blur kernel misses the plane comes back black.
@@ -20,12 +22,14 @@
 uniform shader content;
 uniform float2 resolution;
 
-// Signed tilt around the hinge, in degrees.
+// Tilt magnitude around the hinge, in degrees (sign is ignored — direction
+// comes from tiltDir below).
 uniform float tiltDegrees;
-// 0 = hinge is a vertical edge (left/right), 1 = a horizontal edge (top/bottom).
-uniform float hingeAxis;
-// -1 = hinge on the left/top edge, +1 = on the right/bottom edge.
-uniform float hingeSide;
+// Raw (non-unit) tilt direction — Kotlin's directionRight/directionUp, i.e.
+// which way the near edge (the hinge) points. Continuous, not axis-snapped:
+// this is what lets the hinge sweep smoothly as pitch and roll trade off
+// which one dominates, instead of jumping between the four screen edges.
+uniform float2 tiltDir;
 
 uniform float eyeDistancePx;
 // Blur radius in px gained per px of glass-to-plane gap, and its ceiling.
@@ -49,32 +53,39 @@ half4 main(float2 fragCoord) {
         return content.eval(fragCoord);
     }
 
-    // Pick the axis the fold runs across, then work in 1D along it. This is
-    // the whole of the four-edge generalisation: the ray math below is
-    // unchanged, it just measures distance from a different edge.
-    float alongY = step(0.5, hingeAxis);
-    float coord = mix(fragCoord.x, fragCoord.y, alongY);
-    float extent = mix(size.x, size.y, alongY);
+    float dirLen = length(tiltDir);
+    if (dirLen < 1e-4) {
+        return content.eval(fragCoord);
+    }
+    // Unit direction pointing away from the hinge, across the screen. This is
+    // the whole of the four-edge generalisation, done continuously instead of
+    // by picking one of the four edges: the ray math below is unchanged, it
+    // just measures distance from whichever edge farDir points away from.
+    float2 farDir = tiltDir / dirLen;
 
-    float isFar = step(0.0, hingeSide); // 1 = hinge on the right/bottom edge
-    float hinge = mix(0.0, extent, isFar);
-    float away = mix(1.0, -1.0, isFar); // direction across the screen, away from the hinge
-    float d = abs(coord - hinge);       // distance from the hinge, along the glass
+    float2 center = size * 0.5;
+    // Box support function: half-extent of the screen rect projected onto
+    // farDir — the distance from center to the screen edge along that
+    // direction. d below is then the distance from the far edge (hinge is on
+    // the opposite side), measured along farDir. For farDir = (±1, 0) or
+    // (0, ±1) this reduces exactly to the old per-edge hinge/distance math.
+    float halfExtent = abs(farDir.x) * center.x + abs(farDir.y) * center.y;
+    float d = dot(fragCoord - center, farDir) + halfExtent;
 
     // Glass rotated `tilt` about the hinge line, rising toward the viewer.
-    float moved = hinge + away * d * cos(tilt);
+    float2 glass = fragCoord - farDir * d * (1.0 - cos(tilt));
     float gap = d * sin(tilt);
-    float2 glass = mix(float2(moved, fragCoord.y), float2(fragCoord.x, moved), alongY);
 
-    float2 eye = size * 0.5;
+    float2 eye = center;
 
     // Hinging on a long edge lifts the far edge proportionally further, so on
     // a tall phone a top/bottom fold would magnify roughly three times as hard
     // as a left/right one at the same angle — the content ballooning sideways
-    // rather than folding. Scale the eye back with the hinge axis so both
-    // edges fold with the same strength, instead of letting screen shape
-    // decide it. The rotation itself is untouched; only the eye moves.
+    // rather than folding. Scale the eye back with the hinge direction so
+    // both edges fold with the same strength, instead of letting screen
+    // shape decide it. The rotation itself is untouched; only the eye moves.
     float shortEdge = max(min(size.x, size.y), 1.0);
+    float extent = 2.0 * halfExtent;
     float eyeDist = eyeDistancePx * (extent / shortEdge);
 
     // Ray eye -> glass pixel, continued to the content plane at z = 0.

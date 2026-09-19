@@ -73,8 +73,10 @@ Once installed, open the app. "Enable" starts it — you'll be asked for the
 consent dialog. The Tuning section is where every parameter above lives:
 activation threshold, blur intensity, perspective depth, and everything else
 that only real on-device testing can settle, adjustable in real time while
-the effect is running. Hit "Recalibrate" to reset the neutral pose to
-however you're currently holding the phone.
+the effect is running. Every slider except Activation threshold and Full-tilt
+point has its own switch, so any single parameter can be turned off without
+losing the value it was set to. Hit "Recalibrate" to reset the neutral pose
+to however you're currently holding the phone.
 
 ## Credits
 This project ports the geometric ray-trace fold model from
@@ -104,23 +106,28 @@ Recording these so they don't get re-attempted:
   same display.
 
 ## Everything else that's tunable
-| Control | Default | Applies to | What it does |
-| --- | --- | --- | --- |
-| Activation threshold | 12° | Both | How far from neutral before the effect starts |
-| Full-tilt point | 30° | Both | Deviation at which the effect hits full strength |
-| Perspective | 40% | Classic | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
-| Recede | 10% | Classic | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
-| Motion Softness | 25% | Classic | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
-| View distance | 300mm | Ray-traced | How far the eye sits from the content plane — closer is a more extreme perspective |
-| Blur per mm | 1.5px | Ray-traced | Blur radius gained per mm of glass-to-plane gap |
-| Max blur radius | 48px | Ray-traced | Ceiling on that radius |
-| Darken per mm | 2.0% | Ray-traced | Light lost per mm of that gap |
-| Max darken | 80% | Ray-traced | Ceiling on that loss |
-| Blur | 40px | Shared | Peak blur radius, graded from none at the hinge edge to full strength at the far edge in both modes |
-| Dim | 55% | Shared | How dark the frame goes at full tilt |
-| Edge Fade | 30% | Shared | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
-| Corner Radius | 100% | Shared | Fraction of this device's actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) |
-| Flip tilt direction | off | Both | Reverses which way the frame leans, for devices whose sensor axes come out backwards |
+| Control | Default | Applies to | Toggle | What it does |
+| --- | --- | --- | --- | --- |
+| Activation threshold | 12° | Both | — | How far from neutral before the effect starts |
+| Full-tilt point | 30° | Both | — | Deviation at which the effect hits full strength |
+| Perspective | 40% | Classic | Yes | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
+| Recede | 10% | Classic | Yes | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
+| Motion Softness | 25% | Classic | Yes | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
+| View distance | 300mm | Ray-traced | Yes | How far the eye sits from the content plane — closer is a more extreme perspective |
+| Blur per mm | 1.5px | Ray-traced | Yes | Blur radius gained per mm of glass-to-plane gap |
+| Max blur radius | 48px | Ray-traced | Yes | Ceiling on that radius |
+| Darken per mm | 2.0% | Ray-traced | Yes | Light lost per mm of that gap |
+| Max darken | 80% | Ray-traced | Yes | Ceiling on that loss |
+| Blur | 40px | Shared | Yes | Peak blur radius, graded from none at the hinge edge to full strength at the far edge in both modes |
+| Dim | 55% | Shared | Yes | How dark the frame goes at full tilt |
+| Edge Fade | 30% | Shared | Yes | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
+| Corner Radius | 100% | Shared | Yes | Fraction of this device's actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) |
+| Flip tilt direction | off | Both | — (itself a switch) | Turn on if the frame ever leans the opposite way from how you tilt the phone |
+
+Turning a slider's switch off treats that one parameter as having no effect
+(View distance is the one exception — it falls back to its default instead,
+since a ray-traced fold can't work with a zero eye distance) without
+resetting or losing the value the slider is set to.
 
 "Reset to defaults," next to the Tuning header, writes every value above
 back to its starting point in one tap, including re-detecting the device's
