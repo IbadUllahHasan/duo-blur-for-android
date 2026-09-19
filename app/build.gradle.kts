@@ -12,12 +12,33 @@ android {
         minSdk = 31
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0"
+        versionName = "1.0.0"
+    }
+
+    // Release signing comes entirely from environment variables so no keystore
+    // or password ever needs to live in this file or in git. Only the release
+    // workflow (which decodes the RELEASE_KEYSTORE_BASE64 secret to a temp file
+    // and exports these vars) sets RELEASE_KEYSTORE_PATH; a plain local or CI
+    // `assembleRelease` without it just produces an unsigned APK instead of
+    // failing, so this doesn't affect assembleDebug or day-to-day builds at all.
+    val releaseKeystorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    signingConfigs {
+        if (releaseKeystorePath != null) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseKeystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

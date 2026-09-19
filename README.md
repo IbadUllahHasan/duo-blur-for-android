@@ -1,9 +1,9 @@
-# FoldEcho — iPhone Fold transition on any Android phone
+# DuoFlow — iPhone Fold transition on any Android phone
 
 *4 screenshots below show the effect in action.*
 
 ## What this is
-FoldEcho recreates the look of the iPhone Fold/Duo's fold-blur transition —
+DuoFlow recreates the look of the iPhone Fold/Duo's fold-blur transition —
 captured screen content that leans, blurs and dims as if hinging on an edge —
 on a regular (non-foldable) Android phone, using device tilt as the trigger
 instead of a real hinge sensor. It has two rendering modes: a ray-traced
@@ -51,21 +51,69 @@ they're referenced but not included in this commit.
 | Control panel, Tuning section — mode selector and live parameters. | The effect applied over real app content (Messages, Home, etc.), not a demo screen. |
 
 ## Install
-**Option A — GitHub Releases.** Download the latest APK from this repo's
-Releases page, then sideload it — tapping the downloaded file will prompt
-for the "install unknown apps" permission for whichever app opened it;
-allow it, then install.
+**Option A — GitHub Releases (recommended).** Download the APK from this
+repo's [Releases page](../../releases), then sideload it — tapping the
+downloaded file will prompt for the "install unknown apps" permission for
+whichever app opened it; allow it, then install. Release builds are signed
+with a stable key (see [Cutting a release](#cutting-a-release) below), which
+is what lets you install a newer release over an older one without
+uninstalling first.
 
 **Option B — Build from source via GitHub Actions**, no local Android
 Studio required:
 1. Go to the **Actions** tab → "Build Debug APK" → "Run workflow" (or push
    to `main`, which triggers it automatically).
-2. Once it finishes, open the run and download `FoldEcho-debug-apk` from
+2. Once it finishes, open the run and download `DuoFlow-debug-apk` from
    **Artifacts** (a zip containing `app-debug.apk`).
 3. Sideload it the same way as Option A.
 
 Local Android Studio also works (`Open` this folder, let Gradle sync, run ▶),
 if you'd rather build and iterate on-device directly.
+
+### About the install-time warnings
+Sideloading any app outside the Play Store always shows Android's "unknown
+sources" prompt and usually a Play Protect "unrecognized app" notice — that's
+the OS asking you to vouch for a source it hasn't verified itself, and no
+app-side change removes it; it's not specific to this project. What *is*
+fixable, and is fixed as of this release, was **debug-signed distribution**:
+release builds are now built with `assembleRelease` and a real signing key
+(not the auto-generated debug keystore every `assembleDebug` build carries),
+which is what several AV/security scanners specifically flag regardless of
+what the app actually does. Tapping "Install anyway" past Play Protect's
+notice is expected and safe for an open-source app you can read the full
+source of right here.
+
+## Cutting a release
+Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) runs `.github/workflows/release.yml`,
+which builds an APK and publishes it to this repo's Releases page automatically
+— nothing to do by hand beyond the tag push (or run it manually from the
+**Actions** tab → "Release" → "Run workflow"). It also works with no setup at
+all: without a signing key configured it falls back to a debug-signed build
+(logged as a warning in the workflow run) so a release still goes out.
+
+To get a properly *signed* release instead (recommended — see above), add
+these four repository secrets once, under **Settings → Secrets and variables
+→ Actions → New repository secret**:
+
+| Secret | Value |
+| --- | --- |
+| `RELEASE_KEYSTORE_BASE64` | The release keystore, base64-encoded |
+| `RELEASE_KEYSTORE_PASSWORD` | Its store password |
+| `RELEASE_KEY_ALIAS` | Its key alias |
+| `RELEASE_KEY_PASSWORD` | Its key password |
+
+A keystore usable for this was generated as part of setting this up and sent
+to you separately (not committed here — a signing key in the repo would let
+anyone resign a malicious update) along with these exact four values. **Keep
+that keystore file backed up somewhere safe.** If it's ever lost, every future
+release has to switch to a new key, and Android will refuse to let anyone
+upgrade from an app installed with the old one without uninstalling it first.
+To generate a different one instead:
+```
+keytool -genkeypair -v -keystore release.keystore -alias duoflow \
+  -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 release.keystore   # paste this output as RELEASE_KEYSTORE_BASE64
+```
 
 ## Tuning
 Once installed, open the app. "Enable" starts it — you'll be asked for the
@@ -104,6 +152,12 @@ Recording these so they don't get re-attempted:
   part of the screen, so it lands in the next frame and compounds. There's
   no public API to exclude one window from a `MediaProjection` mirror of the
   same display.
+- **Removing the "unknown sources" / Play Protect prompt on install.** Both
+  are the OS's own warning for anything installed outside the Play Store, not
+  a check against this app specifically, and there's no app-side signing,
+  manifest flag, or permission that opts out of them — only Play Store
+  distribution or an enterprise MDM allowlist would. See *About the
+  install-time warnings* above for what actually is fixable here.
 
 ## Everything else that's tunable
 | Control | Default | Applies to | Toggle | What it does |

@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -194,12 +195,7 @@ private fun ControlPanel(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
-        Text(
-            "FoldEcho",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
+        DuoFlowWordmark()
         Text(
             "Tilt-driven Duo effect, system-wide",
             style = MaterialTheme.typography.bodyMedium,
@@ -474,6 +470,33 @@ private fun TuningGroup(content: @Composable () -> Unit) {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column(Modifier.padding(16.dp)) { content() }
+    }
+}
+
+/**
+ * "Duo" solid, then "Flow" typed out letter by letter with a small blur
+ * radius growing across it — the same "none at the near edge, full strength
+ * at the far edge" grading the app's own Blur slider applies to the frame,
+ * just borrowed for the wordmark instead of a captured screenshot.
+ */
+@Composable
+private fun DuoFlowWordmark() {
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(
+            "Duo",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        "Flow".forEachIndexed { index, letter ->
+            Text(
+                letter.toString(),
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.blur((index * 0.6f).dp)
+            )
+        }
     }
 }
 
