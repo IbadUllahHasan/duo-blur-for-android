@@ -3,6 +3,8 @@ package com.ibad.foldecho
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -129,12 +131,18 @@ class MainActivity : ComponentActivity() {
         projectionManager = getSystemService(MediaProjectionManager::class.java)
         haptics = HapticsController(this)
         tunables = FoldEchoSettings.load(this)
+        applyWindowBackground(tunables.themeMode)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         setContent {
-            val darkTheme = isSystemInDarkTheme()
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (tunables.themeMode) {
+                ThemeMode.SYSTEM -> systemDark
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
             MaterialTheme(colorScheme = if (darkTheme) FoldEchoDarkColors else FoldEchoLightColors) {
                 val running by FoldEchoState.running.collectAsState()
                 val effectActive by FoldEchoState.effectActive.collectAsState()
@@ -197,12 +205,35 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateTunables(updated: Tunables) {
+        val themeChanged = updated.themeMode != tunables.themeMode
         tunables = updated
         FoldEchoSettings.save(this, updated)
+        if (themeChanged) applyWindowBackground(updated.themeMode)
+    }
+
+    /**
+     * values/values-night resolve @color/window_background from the *system*
+     * night setting, which is right for ThemeMode.SYSTEM and wrong the moment
+     * the user pins the opposite one — you'd get a flash of the other theme
+     * behind Compose on every cold start. Re-point the window drawable to
+     * match whatever the preference actually resolves to.
+     */
+    private fun applyWindowBackground(mode: ThemeMode) {
+        val dark = when (mode) {
+            ThemeMode.SYSTEM ->
+                resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                    Configuration.UI_MODE_NIGHT_YES
+            ThemeMode.LIGHT -> false
+            ThemeMode.DARK -> true
+        }
+        window.setBackgroundDrawable(
+            ColorDrawable(getColor(if (dark) R.color.window_background_dark else R.color.window_background_light))
+        )
     }
 
     private fun resetTunables() {
         tunables = FoldEchoSettings.reset(this)
+        applyWindowBackground(tunables.themeMode)
     }
 }
 
@@ -780,6 +811,24 @@ private fun ControlPanel(
 
         Spacer(Modifier.height(16.dp))
         TuningGroup {
+            SectionHeader("Appearance")
+
+            ThemeSelector(
+                mode = tunables.themeMode,
+                onSelect = { onTunablesChange(tunables.copy(themeMode = it)) }
+            )
+
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "System follows your device's light/dark setting. Light and Dark pin the app " +
+                    "regardless of it — the glass tint, opacity and highlight differ between the two.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        TuningGroup {
             SectionHeader("Haptics")
 
             TuningToggle(
@@ -1011,6 +1060,55 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
                 selected = !usingFold,
                 modifier = Modifier.weight(1f)
             ) { onSelect(false) }
+        }
+    }
+}
+
+/**
+ * Three-way sibling of [ModeSelector]: System / Light / Dark. Shares
+ * [ModeOption] for the segments, so press-scale and haptics stay identical
+ * between the two selectors.
+ */
+@Composable
+private fun ThemeSelector(mode: ThemeMode, onSelect: (ThemeMode) -> Unit) {
+    GlassSurface(shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+            val optionWidth = maxWidth / 3
+            val selectedIndex = when (mode) {
+                ThemeMode.SYSTEM -> 0
+                ThemeMode.LIGHT -> 1
+                ThemeMode.DARK -> 2
+            }
+            val indicatorOffset by animateDpAsState(
+                targetValue = optionWidth * selectedIndex,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                label = "themeIndicator"
+            )
+            Box(
+                Modifier
+                    .offset(x = indicatorOffset)
+                    .width(optionWidth)
+                    .fillMaxHeight()
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+            Row(Modifier.fillMaxWidth()) {
+                ModeOption(
+                    label = "System",
+                    selected = mode == ThemeMode.SYSTEM,
+                    modifier = Modifier.weight(1f)
+                ) { onSelect(ThemeMode.SYSTEM) }
+                ModeOption(
+                    label = "Light",
+                    selected = mode == ThemeMode.LIGHT,
+                    modifier = Modifier.weight(1f)
+                ) { onSelect(ThemeMode.LIGHT) }
+                ModeOption(
+                    label = "Dark",
+                    selected = mode == ThemeMode.DARK,
+                    modifier = Modifier.weight(1f)
+                ) { onSelect(ThemeMode.DARK) }
+            }
         }
     }
 }

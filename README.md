@@ -115,6 +115,11 @@ switch, so a parameter can be disabled without losing its saved value. Hit
 "Recalibrate" to reset the neutral pose to however you're currently holding
 the phone.
 
+Appearance sets the app's own colour scheme: System follows the device's
+light/dark setting, while Light and Dark pin it either way. The two schemes
+are separate materials, not one palette relit — glass opacity, tint and the
+specular highlight all differ between them.
+
 See **[docs/TUNING.md](docs/TUNING.md)** for the full parameter table and a
 list of things that were investigated and ruled out.
 

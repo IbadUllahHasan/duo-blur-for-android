@@ -7,6 +7,13 @@ import android.view.Display
 import android.view.RoundedCorner
 
 /**
+ * Which colour scheme the app UI uses. [SYSTEM] follows the device's
+ * light/dark setting; the other two pin it regardless, so the two glass
+ * palettes can be compared side by side without leaving the app.
+ */
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+/**
  * The knobs that only real on-device testing can settle. Stored in prefs so
  * the control panel can move them while the service is running, instead of
  * needing a rebuild per adjustment. Whether a mode-specific *section* applies
@@ -69,6 +76,9 @@ data class Tunables(
     /** Flips tilt-to-lean direction. The "correct" sign depends on the device's sensor axis convention, so this is a runtime toggle rather than a code edit. */
     val flipTiltDirection: Boolean = false,
 
+    /** App UI colour scheme. Purely cosmetic — no bearing on the fold effect itself. */
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+
     /** In-app UI feedback only (slider drags, switches) — no bearing on the fold effect itself. */
     val uiHapticsEnabled: Boolean = true,
 
@@ -119,6 +129,7 @@ object FoldEchoSettings {
     private const val KEY_MAX_DARKEN = "max_darken"
     private const val KEY_MAX_DARKEN_ENABLED = "max_darken_enabled"
     private const val KEY_FLIP = "flip_tilt_direction"
+    private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_UI_HAPTICS_ENABLED = "ui_haptics_enabled"
     private const val KEY_BLUR_HAPTICS_ENABLED = "blur_haptics_enabled"
     private const val KEY_BLUR_HAPTICS_ENGAGE_STRENGTH = "blur_haptics_engage_strength"
@@ -164,6 +175,7 @@ object FoldEchoSettings {
             maxDarken = prefs.getFloat(KEY_MAX_DARKEN, defaults.maxDarken),
             maxDarkenEnabled = prefs.getBoolean(KEY_MAX_DARKEN_ENABLED, defaults.maxDarkenEnabled),
             flipTiltDirection = prefs.getBoolean(KEY_FLIP, defaults.flipTiltDirection),
+            themeMode = readThemeMode(prefs, defaults.themeMode),
             uiHapticsEnabled = prefs.getBoolean(KEY_UI_HAPTICS_ENABLED, defaults.uiHapticsEnabled),
             blurHapticsEnabled = prefs.getBoolean(KEY_BLUR_HAPTICS_ENABLED, defaults.blurHapticsEnabled),
             blurHapticsEngageStrength = prefs.getFloat(KEY_BLUR_HAPTICS_ENGAGE_STRENGTH, defaults.blurHapticsEngageStrength),
@@ -206,6 +218,7 @@ object FoldEchoSettings {
             .putFloat(KEY_MAX_DARKEN, tunables.maxDarken)
             .putBoolean(KEY_MAX_DARKEN_ENABLED, tunables.maxDarkenEnabled)
             .putBoolean(KEY_FLIP, tunables.flipTiltDirection)
+            .putString(KEY_THEME_MODE, tunables.themeMode.name)
             .putBoolean(KEY_UI_HAPTICS_ENABLED, tunables.uiHapticsEnabled)
             .putBoolean(KEY_BLUR_HAPTICS_ENABLED, tunables.blurHapticsEnabled)
             .putFloat(KEY_BLUR_HAPTICS_ENGAGE_STRENGTH, tunables.blurHapticsEngageStrength)
@@ -215,6 +228,16 @@ object FoldEchoSettings {
             .putFloat(KEY_BLUR_HAPTICS_TIMEOUT_STRENGTH, tunables.blurHapticsTimeoutStrength)
             .putBoolean(KEY_BLUR_HAPTICS_TIMEOUT_ENABLED, tunables.blurHapticsTimeoutEnabled)
             .apply()
+    }
+
+    /**
+     * Stored by name rather than ordinal so reordering the enum can't silently
+     * repoint an existing install, and an unrecognised value falls back to the
+     * default instead of throwing.
+     */
+    private fun readThemeMode(prefs: SharedPreferences, default: ThemeMode): ThemeMode {
+        val stored = prefs.getString(KEY_THEME_MODE, null) ?: return default
+        return ThemeMode.values().firstOrNull { it.name == stored } ?: default
     }
 
     /** Writes every tunable back to its class default (device-detected corner radius included) and returns it, so the caller can update its in-memory state without a separate load(). */

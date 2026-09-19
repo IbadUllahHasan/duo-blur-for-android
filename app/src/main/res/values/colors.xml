@@ -1,7 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches FoldEchoLightColors.background in MainActivity, so the window
-         behind Compose is the same colour Compose is about to paint and there's
-         no flash of the wrong theme while the activity starts. -->
+    <!-- Both schemes named explicitly, so MainActivity can pin the window to
+         whichever one the ThemeMode preference resolves to — resource
+         qualifiers alone can only follow the system night setting. -->
+    <color name="window_background_light">#FFF6F8FA</color>
+    <color name="window_background_dark">#FF0E0F13</color>
+
+    <!-- What the manifest theme uses before onCreate runs: follows the system,
+         which is correct for ThemeMode.SYSTEM and corrected in onCreate otherwise.
+         Matches FoldEchoLightColors.background in MainActivity. -->
     <color name="window_background">#FFF6F8FA</color>
 </resources>
