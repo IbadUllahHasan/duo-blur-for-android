@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
@@ -26,13 +26,14 @@ import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
@@ -42,7 +43,6 @@ import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.drawBackdrop
 import com.kashif_e.backdrop.effects.blur
 import com.kashif_e.backdrop.effects.lens
-import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.highlight.HighlightStyle
 import com.kashif_e.backdrop.shadow.Shadow
@@ -76,11 +76,9 @@ data class GlassPalette(
     val specularColor: Color,
     val specularAlpha: Float,
     val highlightWidth: Dp,
-    /** Base fill and dot colour of [DotGridBackground] — independent of MaterialTheme's background, per an exact design spec. */
-    val dotGridBackground: Color,
-    val dotColor: Color,
-    /** Colour(s) of every 4th dot, cycled in order. One colour for a single accent; several to alternate between them. */
-    val dotAccentColors: List<Color>,
+    /** Top and bottom stops of [SimpleBackground]'s vertical gradient. `backgroundTop` is also what the window's `ColorDrawable` and `MaterialTheme.colorScheme.background` are pinned to, so there is one true app background per theme. */
+    val backgroundTop: Color,
+    val backgroundBottom: Color,
     /** [GlassSwitch]'s "on" fill — Apple's systemGreen, the real iOS UISwitch colour. */
     val switchOnTint: Color,
     /** [GlassSwitch]'s "off" fill — a neutral overlay so the off track isn't invisible against a varying backdrop. Not an Apple-sourced value; a reasoned approximation. */
@@ -88,64 +86,58 @@ data class GlassPalette(
 )
 
 /**
- * Dark glass over a near-black micro-dot matrix.
+ * Dark glass over a near-black vertical gradient.
  *
- * `cardBackdropBlurRadius` and `cardTint` alpha are both diagnostic values
- * right now, not final ones. The previous version of this palette (22dp
- * blur, 0.30 tint) shipped untested against a real device and turned out
- * to render every card as a flat, opaque rectangle — no visible dot-grid
- * texture at all. The cause: a 22dp blur radius against this grid's 12dp
- * dot pitch is larger than the pattern's own period, so it doesn't soften
- * the dots, it averages them into a spatially near-uniform wash before
- * `onDrawSurface`'s tint is even composited on top. 3dp keeps the blur
- * diameter well under the 12dp pitch so individual dots survive as soft,
- * distinct blobs; the tint is halved alongside it as a joint diagnostic
- * step, since blur homogenization would make any tint on top look equally
- * flat and a real device round-trip is expensive to spend confirming which
- * one mattered. Once a screenshot confirms texture is visibly present
- * again, both are expected to move back up toward a more frosted target —
- * this is deliberately the conservative end of the range, not the goal.
+ * `cardBackdropBlurRadius` and `cardTint` were both pinned to *diagnostic*
+ * values (3dp / 0.15 alpha) while the backdrop was a 12dp-pitch micro-dot
+ * matrix: any blur radius near that pitch averaged the dots into a flat wash
+ * instead of softening them, so the radius had to stay well under it and the
+ * tint had to stay low to keep any texture visible at all. That constraint is
+ * gone with the dot grid: a smooth gradient has no fine pattern to destroy,
+ * so the radius can go back up to a frosted value and the tint back up to
+ * where a card reads as a real, legible surface rather than a barely-there
+ * film. That legibility is the point — text over a 0.15-alpha card was the
+ * "barely readable" complaint.
  */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF14161C).copy(alpha = 0.15f),
-    cardBackdropBlurRadius = 3.dp,
+    cardTint = Color(0xFF2C2C2E).copy(alpha = 0.62f),
+    cardBackdropBlurRadius = 10.dp,
     lensRefractionHeight = 9.dp,
     lensRefractionAmount = 16.dp,
     specularColor = Color.White,
     specularAlpha = 0.55f,
     highlightWidth = 0.75.dp,
-    dotGridBackground = Color(0xFF090A0F),
-    dotColor = Color(0xFFE2E8F0).copy(alpha = 0.75f),
-    dotAccentColors = listOf(Color(0xFF38BDF8), Color(0xFFF59E0B)),
+    backgroundTop = Color(0xFF000000),
+    backgroundBottom = Color(0xFF1C1C1E),
     switchOnTint = Color(0xFF30D158).copy(alpha = 0.92f),
     switchOffTint = Color.White.copy(alpha = 0.14f)
 )
 
 /**
- * Light glass over a pure-white micro-dot matrix. Same diagnostic
- * blur/tint reasoning as dark — see its doc comment — scaled down slightly
- * further (2.5dp vs 3dp) since a bright backdrop needs even less blur to
- * stay legible.
+ * Light counterpart. Apple's own grouped-content convention: the page is the
+ * grey (`systemGroupedBackground`, #F2F2F7) and the cards are the white, not
+ * the other way round — which is also what makes near-black label text
+ * readable on them. See [DarkGlassPalette] for why these values are no longer
+ * the low diagnostic ones.
  */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.11f),
-    cardBackdropBlurRadius = 2.5.dp,
+    cardTint = Color.White.copy(alpha = 0.78f),
+    cardBackdropBlurRadius = 10.dp,
     lensRefractionHeight = 8.dp,
     lensRefractionAmount = 14.dp,
     specularColor = Color.White,
     specularAlpha = 0.75f,
     highlightWidth = 0.75.dp,
-    dotGridBackground = Color(0xFFFFFFFF),
-    dotColor = Color(0xFF0F172A),
-    dotAccentColors = listOf(Color(0xFFEF4444)),
+    backgroundTop = Color(0xFFF2F2F7),
+    backgroundBottom = Color(0xFFE5E5EA),
     switchOnTint = Color(0xFF34C759).copy(alpha = 0.92f),
-    switchOffTint = Color.Black.copy(alpha = 0.06f)
+    switchOffTint = Color.Black.copy(alpha = 0.10f)
 )
 
 val LocalGlassPalette = compositionLocalOf { DarkGlassPalette }
 
 /**
- * Shared across the whole screen: one captured backdrop layer (the dot grid),
+ * Shared across the whole screen: one captured backdrop layer (the background),
  * many glass children sampling it. Held as a composition local so every card
  * samples the same capture — see the note on GlassScene about why this must be
  * remembered once at the scaffold rather than created per card.
@@ -167,16 +159,33 @@ private const val HIGHLIGHT_ANGLE_DEG = 45f
  * it, plus a fixed specular highlight. [content] still owns its own padding —
  * this only draws the surface itself.
  *
- * Effects run in the order the library documents as the iOS-style stack:
- * saturate, soften, then bend. `lens` is what actually distorts the dot grid;
- * `blur` alone would only fog it. The shadow is what separates a card from
- * whatever sits below it — without it, glass reads as a flat tinted layer
- * rather than something elevated.
+ * ### Why [refractive] exists
+ *
+ * Every `drawBackdrop` call is its own offscreen layer plus an AGSL shader
+ * pass per frame. That is affordable for the handful of cards it was designed
+ * for; it is not affordable once every switch track and every slider track is
+ * also one, which is what the previous change made them — roughly thirty
+ * shader-backed surfaces on one scrolling screen, and the direct cause of the
+ * "laggy/sluggish overall" report. Small controls therefore pass
+ * `refractive = false` and get blur only: one pass instead of two, and no lens
+ * distortion, which at a 28–31dp control height was sub-pixel anyway. They
+ * still sample the real backdrop, so the "same blur thingy" the controls were
+ * asked for is intact — it is the part that was costing frames without being
+ * visible that is gone.
+ *
+ * Two more effects were dropped outright for the same reason:
+ * - `vibrancy()`, a full saturation pass over the sampled layer — least
+ *   visible of the three, and now pointless over a near-neutral gradient.
+ * - `chromaticAberration`, which triples the lens shader's per-pixel sample
+ *   count. It existed specifically so the dot grid's accent dots would split
+ *   into colour at the refraction rim; with the grid gone there is no chroma
+ *   in the backdrop left for it to separate.
  */
 @Composable
 fun GlassSurface(
     shape: Shape = RoundedCornerShape(GlassRadii.card),
     modifier: Modifier = Modifier,
+    refractive: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val backdrop = LocalBackdrop.current
@@ -188,17 +197,14 @@ fun GlassSurface(
                 backdrop = backdrop,
                 shape = { shape },
                 effects = {
-                    vibrancy()
                     blur(palette.cardBackdropBlurRadius.toPx())
-                    lens(
-                        refractionHeight = palette.lensRefractionHeight.toPx(),
-                        refractionAmount = palette.lensRefractionAmount.toPx(),
-                        // The accent dots exist specifically to make this
-                        // visible at the refraction rim. Not verified on a
-                        // real scrolling frame — if it reads as janky on
-                        // device, this is the first thing to drop.
-                        chromaticAberration = true
-                    )
+                    if (refractive) {
+                        lens(
+                            refractionHeight = palette.lensRefractionHeight.toPx(),
+                            refractionAmount = palette.lensRefractionAmount.toPx(),
+                            chromaticAberration = false
+                        )
+                    }
                 },
                 // Static: a fixed angle, and colour/alpha that vary only by
                 // theme. Nothing in here changes once the theme is resolved.
@@ -226,17 +232,35 @@ fun GlassSurface(
             .background(palette.cardTint)
     }
 
-    Box(glass.then(modifier)) {
-        content()
+    // key(palette), and not a plain recomposition, is what makes a theme
+    // switch repaint the glass *immediately* rather than on the next touch.
+    // DrawBackdropNode declares `shouldAutoInvalidate = false`, and its
+    // element's `update()` only calls `invalidateDrawCache()` — which
+    // recomputes the RenderEffect but never calls `invalidateDraw()`
+    // (verified by reading the library's own DrawBackdropModifier.kt, not
+    // assumed). So a card whose tint/blur parameters changed keeps replaying
+    // its previously recorded draw until something unrelated invalidates the
+    // layer — which on a real device is the user's next touch. That is
+    // exactly the reported "boxes don't change colour until I interact with
+    // the screen". Re-keying forces `create()` instead of `update()`, and a
+    // brand-new node has nothing stale to replay.
+    //
+    // Cost, stated rather than hidden: this disposes and recreates [content]'s
+    // subtree, so any `rememberSaveable` inside a glass card resets on a theme
+    // change — in this app that means expanded "Advanced" sections collapse.
+    // A rare, deliberate button press trading for a correct repaint.
+    key(palette) {
+        Box(glass.then(modifier)) {
+            content()
+        }
     }
 }
 
 /**
- * iOS-style pill switch: a real [GlassSurface] track — so it gets the same
- * backdrop refraction/highlight every card gets, not a flat Material
- * `Switch` — a white circular thumb, and an animated tint that shifts
- * between [GlassPalette.switchOffTint] and [GlassPalette.switchOnTint] on
- * check.
+ * iOS-style pill switch: a [GlassSurface] track — so it gets the same backdrop
+ * sampling and highlight the cards get, not a flat Material `Switch` — a white
+ * circular thumb, and an animated tint that shifts between
+ * [GlassPalette.switchOffTint] and [GlassPalette.switchOnTint] on check.
  *
  * Built on [Modifier.toggleable] rather than Material3's `Switch`: `Switch`
  * exposes no swappable track slot, only colour tinting, and this needs the
@@ -276,6 +300,7 @@ fun GlassSwitch(
 
     GlassSurface(
         shape = CircleShape,
+        refractive = false,
         modifier = modifier
             .size(width = SWITCH_TRACK_WIDTH, height = SWITCH_TRACK_HEIGHT)
             .alpha(if (enabled) 1f else 0.4f)
@@ -295,9 +320,18 @@ fun GlassSwitch(
         // the on/off colour this control needs is specific to it, not
         // something every card should carry.
         Box(Modifier.fillMaxSize().background(trackTint))
+        // offset, not padding: `thumbOffset` is driven by a *bouncy* spring,
+        // which by definition overshoots its target on the way in. Toggling
+        // on overshoots past 22dp, which is harmless; toggling off overshoots
+        // past the 2dp inset and goes briefly negative — and
+        // Modifier.padding throws IllegalArgumentException on a negative Dp,
+        // which is precisely why the app crashed on switching any toggle
+        // *off* and not on. Modifier.offset accepts negative values by
+        // design, so the bounce renders as the intended slight overshoot
+        // instead of a crash.
         Box(
             Modifier
-                .padding(start = thumbOffset, top = SWITCH_THUMB_INSET)
+                .offset(x = thumbOffset, y = SWITCH_THUMB_INSET)
                 .size(SWITCH_THUMB_SIZE)
                 .shadow(elevation = 1.5.dp, shape = CircleShape, clip = false)
                 .background(Color.White, CircleShape)
@@ -312,8 +346,8 @@ private val SWITCH_THUMB_INSET = 2.dp
 
 /**
  * iOS "Liquid Glass" style slider: a thick glass pill track with a solid
- * fill up to the current value and a glassy/refractive remainder, plus a
- * plain white circular thumb with a drop shadow.
+ * fill up to the current value and a glassy remainder, plus a plain white
+ * circular thumb with a drop shadow.
  *
  * Corrected once already: the first version of this composable was built
  * against `Slider(state=, thumb=, track=)` from androidx's `androidx-main`
@@ -361,6 +395,10 @@ private fun GlassSliderTrack(state: SliderState, enabled: Boolean) {
 
     GlassSurface(
         shape = CircleShape,
+        // Blur only — see GlassSurface's doc comment. A dragging slider
+        // recomposes its track every frame, so this is the single worst place
+        // in the app to run a lens pass.
+        refractive = false,
         modifier = Modifier
             .fillMaxWidth()
             .height(SLIDER_TRACK_HEIGHT)
@@ -368,7 +406,7 @@ private fun GlassSliderTrack(state: SliderState, enabled: Boolean) {
     ) {
         // Fully opaque, so it completely covers the glass beneath it in the
         // filled region — that's what makes the fill read as solid colour
-        // while the remainder stays glassy and refractive.
+        // while the remainder stays glassy.
         Box(
             Modifier
                 .fillMaxHeight()
@@ -396,77 +434,49 @@ private val SLIDER_TRACK_HEIGHT = 28.dp
 private val SLIDER_THUMB_SIZE = 32.dp
 
 /**
- * The backdrop every glass card samples: a high-density micro-dot matrix —
- * 2dp dots on a 12dp grid — over its own exact background colour, with every
- * 4th node in an accent colour so the refraction rim has something with real
- * chroma to visibly separate as cards pass over it.
+ * The backdrop every glass card samples: one vertical gradient, top to bottom,
+ * and nothing else.
+ *
+ * This replaces a high-density micro-dot matrix (2dp dots on a 12dp grid, with
+ * an accent every 4th node). That drew on the order of seventeen hundred
+ * `drawCircle` calls into the captured backdrop layer, and the layer is
+ * re-captured whenever the content over it changes — so the cost landed on
+ * scroll frames, on expand/collapse frames, and on every slider drag. It is a
+ * single `drawRect` now, which is what "change the backgrounds to something
+ * simple" asked for and also removes the largest fixed per-frame cost on the
+ * screen.
  *
  * It is deliberately motionless — no drift animation, nothing driven by the
  * tilt sensor. The glass effect is demonstrated by the cards moving over this
  * field as the panel scrolls, so the field itself staying put is the whole
- * point: it is the fixed reference the refraction distorts against. A
- * background that also moved would muddy that.
+ * point: it is the fixed reference the refraction distorts against.
  *
  * Drawn as a sibling *behind* the scrolling content, never inside the scroll
  * container, so scrolling moves the cards across it rather than dragging it
  * along with them.
  *
- * This paints its own opaque base — [GlassPalette.dotGridBackground], not
- * MaterialTheme's background — rather than letting the Surface behind it show
- * through: the backdrop layer captures only what this composable draws, and a
- * transparent capture would leave the glass sampling nothing.
+ * This paints its own opaque base — [GlassPalette.backgroundTop]/
+ * [GlassPalette.backgroundBottom], not MaterialTheme's background — rather
+ * than letting the Surface behind it show through: the backdrop layer captures
+ * only what this composable draws, and a transparent capture would leave the
+ * glass sampling nothing.
  */
 @Composable
-fun DotGridBackground(modifier: Modifier = Modifier) {
+fun SimpleBackground(modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
 
     Box(
         modifier
             .fillMaxSize()
             .drawBehind {
-                drawRect(palette.dotGridBackground)
-
-                val step = DOT_SPACING.toPx()
-                val radius = DOT_RADIUS.toPx()
-                val columns = (size.width / step).toInt()
-                val rows = (size.height / step).toInt()
-
-                // Half a cell in from the edge, so the field is inset evenly on
-                // both sides instead of clipping a row flush against one edge.
-                val originX = step / 2f
-                val originY = step / 2f
-
-                // A running count over every node drawn, in the same order as
-                // the loop below: every 4th one is an accent, and successive
-                // accents cycle through dotAccentColors — the "alternating"
-                // part when there's more than one.
-                var nodeIndex = 0
-
-                for (column in 0..columns) {
-                    val x = originX + column * step
-                    for (row in 0..rows) {
-                        val isAccent = nodeIndex % DOT_ACCENT_EVERY == 0
-                        val color = if (isAccent) {
-                            val accents = palette.dotAccentColors
-                            accents[(nodeIndex / DOT_ACCENT_EVERY) % accents.size]
-                        } else {
-                            palette.dotColor
-                        }
-                        drawCircle(
-                            color = color,
-                            radius = radius,
-                            center = Offset(x, originY + row * step)
-                        )
-                        nodeIndex++
-                    }
-                }
+                drawRect(
+                    Brush.verticalGradient(
+                        colors = listOf(palette.backgroundTop, palette.backgroundBottom)
+                    )
+                )
             }
     )
 }
-
-private val DOT_SPACING = 12.dp
-private val DOT_RADIUS = 2.dp
-private const val DOT_ACCENT_EVERY = 4
 
 /** A spring-based ~0.95x press-down, for elements that build their own click handling (so they can share one [InteractionSource] between the scale and the actual click). */
 @Composable

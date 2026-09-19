@@ -227,9 +227,9 @@ class MainActivity : ComponentActivity() {
 
 /**
  * Hosts the backdrop source and the scrolling content as siblings in one Box:
- * the dot grid behind, fixed, and the scrolling panel in front of it.
+ * the background behind, fixed, and the scrolling panel in front of it.
  *
- * The grid is deliberately *outside* the scroll container and carries no
+ * The background is deliberately *outside* the scroll container and carries no
  * transform of its own, so it stays put while the cards travel over it. That
  * is what makes the glass legible: each card refracts whatever part of the
  * fixed field it currently covers, and scrolling alone is what animates the
@@ -258,7 +258,7 @@ private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
     val backdrop = rememberLayerBackdrop()
 
     Box(Modifier.fillMaxSize()) {
-        DotGridBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
+        SimpleBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
         CompositionLocalProvider(LocalBackdrop provides backdrop) {
             content(scrollState)
         }
@@ -273,7 +273,7 @@ private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
  * hex-reference sites were blocked by this environment's network policy and
  * Apple's own docs are JS-rendered with no literal hex reachable.
  * `background`/`onBackground` are pure black/white, matching Apple's `label`
- * and unified with the locked GlassPalette.dotGridBackground (#090A0F) rather
+ * and unified with GlassPalette.backgroundTop rather
  * than adding a third near-but-not-quite-matching near-black to the app.
  * `onSurfaceVariant`/`outlineVariant` use Apple's real alpha-based label
  * hierarchy (a base colour + alpha, not a distinct hue) rather than a flat
@@ -288,12 +288,12 @@ private val FoldEchoDarkColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFCDE5FF),
     secondary = Color(0xFF5E5CE6),            // systemIndigo dark
     tertiary = Color(0xFF64D2FF),             // systemTeal dark
-    background = Color(0xFF090A0F),
+    background = Color(0xFF000000),           // the gradient's top stop in DarkGlassPalette
     onBackground = Color(0xFFFFFFFF),         // Apple `label` dark
     surface = Color(0xFF1C1C1E),              // Apple secondarySystemBackground dark
     onSurface = Color(0xFFFFFFFF),
     surfaceVariant = Color(0xFF2C2C2E),
-    onSurfaceVariant = Color(0xFFEBEBF5).copy(alpha = 0.6f), // Apple secondaryLabel dark
+    onSurfaceVariant = Color(0xFFEBEBF5).copy(alpha = 0.78f), // Apple secondaryLabel dark, alpha raised — see the light scheme's note
     surfaceContainer = Color(0xFF2C2C2E),     // Apple tertiarySystemBackground dark
     surfaceContainerHigh = Color(0xFF3A3A3C),
     outline = Color(0xFF38383A),              // Apple opaqueSeparator dark
@@ -308,12 +308,18 @@ private val FoldEchoLightColors = lightColorScheme(
     onPrimaryContainer = Color(0xFF00305A),
     secondary = Color(0xFF5856D6),            // systemIndigo light
     tertiary = Color(0xFF5AC8FA),             // systemTeal light
-    background = Color(0xFFFFFFFF),
+    background = Color(0xFFF2F2F7),           // Apple systemGroupedBackground light — the gradient's top stop in LightGlassPalette
     onBackground = Color(0xFF000000),         // Apple `label` light
     surface = Color(0xFFF2F2F7),              // Apple secondarySystemBackground light
     onSurface = Color(0xFF000000),
     surfaceVariant = Color(0xFFE5E5EA),
-    onSurfaceVariant = Color(0xFF3C3C43).copy(alpha = 0.6f), // Apple secondaryLabel light
+    // Apple's real secondaryLabel is #3C3C43 @0.6, and that is what was here.
+    // It is calibrated for opaque iOS backgrounds; over a *translucent* glass
+    // card the effective contrast drops again, which is what made light-mode
+    // body text "barely readable". Raised to 0.85 rather than kept nominally
+    // Apple-accurate, and the two call sites that used to multiply this by a
+    // further 0.8 no longer do.
+    onSurfaceVariant = Color(0xFF3C3C43).copy(alpha = 0.85f),
     surfaceContainer = Color(0xFFF2F2F7),     // Apple's tertiarySystemBackground light is #FFFFFF, same as background — reuses secondarySystemBackground instead
     surfaceContainerHigh = Color(0xFFE5E5EA),
     outline = Color(0xFFC6C6C8),              // Apple opaqueSeparator light
@@ -814,13 +820,13 @@ private fun ControlPanel(
                 "for consent on every tilt. Apps that block screenshots (banking, " +
                 "password managers, DRM video) will show black instead of their content.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(24.dp))
     }
 }
 
-/** The glass shell every tuning section shares — real refraction of the dot grid behind it, not a flat translucent color. */
+/** The glass shell every tuning section shares — real refraction of the gradient behind it, not a flat translucent color. */
 @Composable
 private fun TuningGroup(content: @Composable () -> Unit) {
     GlassSurface(shape = RoundedCornerShape(GlassRadii.card)) {
@@ -868,10 +874,15 @@ private fun AdvancedSection(title: String = "Advanced", content: @Composable () 
         }
         AnimatedVisibility(
             visible = expanded,
+            // Was DampingRatioLowBouncy at StiffnessLow (200f) expanding — a
+            // spring that slow reads as lag rather than as easing, and every
+            // frame of it re-measures the card, which re-records the glass
+            // backdrop underneath. Non-bouncy at StiffnessMediumLow settles in
+            // roughly a third the time and does far less work getting there.
             enter = fadeIn(spring(stiffness = Spring.StiffnessMedium)) +
-                expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)),
+                expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)),
             exit = fadeOut(spring(stiffness = Spring.StiffnessMedium)) +
-                shrinkVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+                shrinkVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
         ) {
             Column {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -1155,7 +1166,7 @@ private fun StatusCard(
                 Text(
                     "Triggers past ${tunables.activateDeg.roundToInt()}°",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 TextButton(onClick = onRecalibrate, enabled = running) { Text("Recalibrate") }
             }

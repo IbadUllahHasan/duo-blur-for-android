@@ -3,14 +3,15 @@
     <!-- Both schemes named explicitly, so MainActivity can pin the window to
          whichever one the ThemeMode preference resolves to — resource
          qualifiers alone can only follow the system night setting.
-         Unified with GlassPalette.dotGridBackground (Glass.kt) — one true
-         app background per theme instead of a second near-white/near-black
-         approximation. -->
-    <color name="window_background_light">#FFFFFFFF</color>
-    <color name="window_background_dark">#FF090A0F</color>
+         Each is the *top stop* of GlassPalette's background gradient
+         (Glass.kt), which is also what MaterialTheme.colorScheme.background
+         is set to — one true app background per theme, so there is no seam
+         where the window drawable meets the first frame Compose draws. -->
+    <color name="window_background_light">#FFF2F2F7</color>
+    <color name="window_background_dark">#FF000000</color>
 
     <!-- What the manifest theme uses before onCreate runs: follows the system,
          which is correct for ThemeMode.SYSTEM and corrected in onCreate otherwise.
          Matches FoldEchoLightColors.background in MainActivity. -->
-    <color name="window_background">#FFFFFFFF</color>
+    <color name="window_background">#FFF2F2F7</color>
 </resources>
