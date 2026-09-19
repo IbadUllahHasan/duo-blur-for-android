@@ -1,7 +1,7 @@
 package com.ibad.foldecho
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -19,12 +19,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderState
-import androidx.compose.material3.rememberSliderState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -316,19 +315,23 @@ private val SWITCH_THUMB_INSET = 2.dp
  * fill up to the current value and a glassy/refractive remainder, plus a
  * plain white circular thumb with a drop shadow.
  *
- * Built on Material3's non-deprecated `Slider(state=, thumb=, track=)`
- * overload rather than the simpler `Slider(value=, onValueChange=, ...)`
- * one `TuningSlider` used before — the deprecated overload has no track
- * slot to customise, only `SliderColors` tinting, which can't produce the
- * solid-fill/glassy-remainder split this needs.
- *
- * [rememberSliderState] only reads `value` on first composition (it's
- * backed by `rememberSaveable`) and does not react to the external `value`
- * parameter changing afterward. This app's "Reset to defaults" rewrites
- * `Tunables` — and therefore this composable's `value` parameter — well
- * after first composition, so without the `LaunchedEffect` below the thumb
- * would visually freeze at its pre-reset position until dragged again.
+ * Corrected once already: the first version of this composable was built
+ * against `Slider(state=, thumb=, track=)` from androidx's `androidx-main`
+ * dev branch (fetched live, but that branch is ahead of any tagged
+ * release) and against a `rememberSliderState(trackRange=)` that doesn't
+ * exist in this project's actual pinned material3 (1.4.0, per compose-bom
+ * 2025.12.01). Both assumptions were wrong and CI caught it immediately —
+ * a real compiler error, not a guess, is what this version is built from.
+ * The stable 1.4.0 `Slider` has a third overload the dev-branch source
+ * didn't show me: `value=`/`onValueChange=` *combined* with `thumb=`/
+ * `track=` slots, still fully caller-controlled. That removes the whole
+ * problem the first version's `LaunchedEffect` sync existed for — there's
+ * no separate remembered `SliderState` to fall out of sync with `value` in
+ * the first place, since there isn't one; `thumb`/`track` are still handed
+ * a `SliderState` per call for reading `coercedValueAsFraction`, just one
+ * the framework owns internally.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GlassSlider(
     value: Float,
@@ -338,25 +341,11 @@ fun GlassSlider(
     enabled: Boolean = true,
     onValueChangeFinished: (() -> Unit)? = null
 ) {
-    val sliderState = rememberSliderState(value = value, trackRange = valueRange)
-
-    LaunchedEffect(value) {
-        if (sliderState.value != value) {
-            sliderState.value = value
-        }
-    }
-
     Slider(
-        state = sliderState,
-        onValueChange = {
-            // Belt-and-braces: a harmless no-op if Slider's own internals
-            // already wrote this, a required assignment if they didn't —
-            // the exact internal contract wasn't fully pinned down against
-            // the library's source, so this covers either case.
-            sliderState.value = it
-            onValueChange(it)
-        },
+        value = value,
+        onValueChange = onValueChange,
         onValueChangeFinished = onValueChangeFinished,
+        valueRange = valueRange,
         modifier = modifier,
         enabled = enabled,
         thumb = { GlassSliderThumb(enabled = enabled) },
@@ -364,6 +353,7 @@ fun GlassSlider(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GlassSliderTrack(state: SliderState, enabled: Boolean) {
     val fillColor = MaterialTheme.colorScheme.primary
