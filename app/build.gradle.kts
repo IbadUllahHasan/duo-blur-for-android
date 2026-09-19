@@ -81,4 +81,18 @@ dependencies {
     // Compose Multiplatform coordinates built with Kotlin 2.x, which this
     // project's Kotlin 1.9.24 compiler cannot consume.
     implementation("dev.chrisbanes.haze:haze:0.7.3")
+
+    // KMP Liquid Glass (github.com/Kashif-E/KMPLiquidGlass), published to Maven
+    // Central as `backdrop`. Only version on Central as of this writing.
+    //
+    // NOT expected to resolve cleanly on this project's current toolchain: the
+    // published Gradle module metadata for 0.0.1-alpha02 declares
+    // kotlin-stdlib >= 2.3.0 and androidx.compose.ui/foundation >= 1.10.0 as
+    // hard dependency requirements — the same class of conflict the Haze pin
+    // above exists to avoid. This project runs Kotlin 1.9.24, compose-bom
+    // 2024.06.00 (~compose-ui 1.6.x), and the pre-K2 `kotlinCompilerExtensionVersion`
+    // mechanism instead of the Compose Compiler Gradle plugin newer Compose UI
+    // requires. Left in place (rather than removed) so the real Gradle failure,
+    // not a guess, drives whatever toolchain change turns out to be needed.
+    implementation("io.github.kashif-mehmood-km:backdrop:0.0.1-alpha02")
 }
