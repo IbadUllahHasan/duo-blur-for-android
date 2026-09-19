@@ -1,43 +1,10 @@
 # DuoFlow — iPhone Fold transition on any Android phone
 
-*4 screenshots below show the effect in action.*
-
-## What this is
-DuoFlow recreates the look of the iPhone Fold/Duo's fold-blur transition —
-captured screen content that leans, blurs and dims as if hinging on an edge —
-on a regular (non-foldable) Android phone, using device tilt as the trigger
-instead of a real hinge sensor. It has two rendering modes: a ray-traced
-geometric fold (more accurate, needs Android 13+) and a classic lean/scale
-transform (fast, works back to Android 12) as a fallback.
-
-## How it works
-Enable it, tilt the phone, and whatever's on screen freezes into a leaning,
-graded-blur snapshot until you tilt back to neutral — over any app, because
-it captures real pixels via `MediaProjection` rather than blurring in place.
-The pipeline is: `TYPE_ROTATION_VECTOR` sensor reading → one frozen frame
-captured per gesture → GPU rendering, either an AGSL `RuntimeShader` doing a
-real per-pixel ray trace, or View 3D transforms as a fallback → blur that
-intensifies away from the hinge edge in both modes. Every parameter below is
-tunable live, in-app, while the effect is running — nothing here needed a
-rebuild to adjust. Nothing about this modifies the system: it draws an
-overlay window while the app's foreground service is running, and stops
-touching anything the moment you disable it.
-
-## Known limitations
-- Requires Android 12 (API 31) or newer.
-- Shows the system's screen-recording indicator for as long as the feature
-  is enabled, not just during a tilt — the cost of keeping one capture
-  session open instead of re-prompting for consent on every gesture.
-- Apps that set `FLAG_SECURE` (banking, Netflix, password managers) capture
-  as black, not blurred — an Android-wide protection with no workaround from
-  here.
-- Ray-traced mode needs API 33+ for AGSL `RuntimeShader` support, and even
-  there it can fail to compile on a given device's GPU driver; either case
-  falls back to the classic lean/scale renderer automatically.
-- Sensor calibration ("Recalibrate," in the app or on the notification) is
-  needed on first launch, and again any time holding the phone at an angle
-  becomes your new "neutral" pose — the effect measures deviation from
-  whatever pose was neutral when last calibrated, not absolute level.
+DuoFlow recreates the iPhone Fold/Duo's fold-blur transition — captured
+screen content that leans, blurs and dims as if hinging on an edge — on a
+regular (non-foldable) Android phone, using device tilt instead of a real
+hinge sensor. Two rendering modes: a ray-traced geometric fold (Android 13+)
+and a classic lean/scale transform as a fallback (Android 12+).
 
 ## Screenshots
 Add these under `screenshots/` in the repo with the filenames below —
@@ -50,50 +17,64 @@ they're referenced but not included in this commit.
 | ![Control panel, Tuning section](screenshots/control-panel-tuning.png) | ![Effect over real app content](screenshots/real-app-content.png) |
 | Control panel, Tuning section — mode selector and live parameters. | The effect applied over real app content (Messages, Home, etc.), not a demo screen. |
 
+## How it works
+Enable it, tilt the phone, and whatever's on screen freezes into a leaning,
+graded-blur snapshot until you tilt back to neutral — over any app, since it
+captures real pixels via `MediaProjection` rather than blurring in place.
+
+`TYPE_ROTATION_VECTOR` sensor reading → one frozen frame captured per
+gesture → GPU rendering (an AGSL `RuntimeShader` ray trace, or a View 3D
+transform fallback) → blur that intensifies away from the hinge edge in both
+modes. Every parameter is tunable live, in-app — see [Tuning](#tuning).
+Nothing about this modifies the system: it draws an overlay window while the
+app's foreground service runs, and stops touching anything the moment you
+disable it.
+
 ## Install
 **Option A — GitHub Releases (recommended).** Download the APK from this
-repo's [Releases page](../../releases), then sideload it — tapping the
-downloaded file will prompt for the "install unknown apps" permission for
-whichever app opened it; allow it, then install. Release builds are signed
-with a stable key (see [Cutting a release](#cutting-a-release) below), which
-is what lets you install a newer release over an older one without
-uninstalling first.
+repo's [Releases page](../../releases) and sideload it: tapping the
+downloaded file prompts for the "install unknown apps" permission, allow it,
+then install. Release builds are signed with a stable key (see
+[Cutting a release](#cutting-a-release)), so you can install a newer release
+over an older one without uninstalling first.
 
-**Option B — Build from source via GitHub Actions**, no local Android
-Studio required:
-1. Go to the **Actions** tab → "Build Debug APK" → "Run workflow" (or push
-   to `main`, which triggers it automatically).
-2. Once it finishes, open the run and download `DuoFlow-debug-apk` from
-   **Artifacts** (a zip containing `app-debug.apk`).
+**Option B — Build from source via GitHub Actions** (no local Android
+Studio needed):
+1. **Actions** tab → "Build Debug APK" → "Run workflow" (or push to `main`,
+   which triggers it automatically).
+2. Once it finishes, open the run and download `DuoFlow.apk` from
+   **Artifacts**.
 3. Sideload it the same way as Option A.
 
-Local Android Studio also works (`Open` this folder, let Gradle sync, run ▶),
-if you'd rather build and iterate on-device directly.
+Local Android Studio also works (`Open` this folder, let Gradle sync, run ▶).
 
-### About the install-time warnings
+<details>
+<summary>About the install-time warnings</summary>
+
 Sideloading any app outside the Play Store always shows Android's "unknown
-sources" prompt and usually a Play Protect "unrecognized app" notice — that's
-the OS asking you to vouch for a source it hasn't verified itself, and no
-app-side change removes it; it's not specific to this project. What *is*
-fixable, and is fixed as of this release, was **debug-signed distribution**:
-release builds are now built with `assembleRelease` and a real signing key
-(not the auto-generated debug keystore every `assembleDebug` build carries),
-which is what several AV/security scanners specifically flag regardless of
-what the app actually does. Tapping "Install anyway" past Play Protect's
-notice is expected and safe for an open-source app you can read the full
-source of right here.
+sources" prompt and usually a Play Protect "unrecognized app" notice — the OS
+asking you to vouch for a source it hasn't verified, not specific to this
+project, and not fixable from the app side.
+
+What *is* fixed as of this release is **debug-signed distribution**: release
+builds now use `assembleRelease` with a real signing key instead of the
+auto-generated debug keystore every `assembleDebug` build carries, which is
+what several AV/security scanners flag regardless of what the app does.
+Tapping "Install anyway" past Play Protect's notice is expected and safe for
+an open-source app you can read the full source of right here.
+</details>
 
 ## Cutting a release
-Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) runs `.github/workflows/release.yml`,
-which builds an APK and publishes it to this repo's Releases page automatically
-— nothing to do by hand beyond the tag push (or run it manually from the
-**Actions** tab → "Release" → "Run workflow"). It also works with no setup at
-all: without a signing key configured it falls back to a debug-signed build
-(logged as a warning in the workflow run) so a release still goes out.
+Push a tag matching `v*.*.*` (e.g. `v1.0.0`) to run
+`.github/workflows/release.yml`, which builds an APK and publishes it to this
+repo's Releases page automatically (or run it manually from **Actions** →
+"Release" → "Run workflow"). With no setup at all it falls back to a
+debug-signed build (logged as a warning in the run) so a release still goes
+out.
 
-To get a properly *signed* release instead (recommended — see above), add
-these four repository secrets once, under **Settings → Secrets and variables
-→ Actions → New repository secret**:
+To get a properly *signed* release instead (recommended), add these four
+repository secrets once, under **Settings → Secrets and variables → Actions
+→ New repository secret**:
 
 | Secret | Value |
 | --- | --- |
@@ -102,29 +83,53 @@ these four repository secrets once, under **Settings → Secrets and variables
 | `RELEASE_KEY_ALIAS` | Its key alias |
 | `RELEASE_KEY_PASSWORD` | Its key password |
 
+<details>
+<summary>Generating a keystore</summary>
+
 A keystore usable for this was generated as part of setting this up and sent
 to you separately (not committed here — a signing key in the repo would let
-anyone resign a malicious update) along with these exact four values. **Keep
-that keystore file backed up somewhere safe.** If it's ever lost, every future
-release has to switch to a new key, and Android will refuse to let anyone
-upgrade from an app installed with the old one without uninstalling it first.
+anyone resign a malicious update), along with these exact four values.
+**Keep that keystore file backed up somewhere safe** — if it's ever lost,
+every future release has to switch to a new key, and Android will refuse to
+let anyone upgrade from an app installed with the old one without
+uninstalling it first.
+
 To generate a different one instead:
 ```
 keytool -genkeypair -v -keystore release.keystore -alias duoflow \
   -keyalg RSA -keysize 2048 -validity 10000
 base64 -w0 release.keystore   # paste this output as RELEASE_KEYSTORE_BASE64
 ```
+</details>
 
 ## Tuning
-Once installed, open the app. "Enable" starts it — you'll be asked for the
-"display over other apps" permission and then the one-time screen-capture
-consent dialog. The Tuning section is where every parameter above lives:
-activation threshold, blur intensity, perspective depth, and everything else
-that only real on-device testing can settle, adjustable in real time while
-the effect is running. Every slider except Activation threshold and Full-tilt
-point has its own switch, so any single parameter can be turned off without
-losing the value it was set to. Hit "Recalibrate" to reset the neutral pose
-to however you're currently holding the phone.
+Open the app and hit "Enable" — it asks for the "display over other apps"
+permission, then a one-time screen-capture consent dialog. The Tuning
+section holds every parameter (activation threshold, blur intensity,
+perspective depth, etc.), adjustable live while the effect is running. Each
+slider except Activation threshold and Full-tilt point has its own on/off
+switch, so a parameter can be disabled without losing its saved value. Hit
+"Recalibrate" to reset the neutral pose to however you're currently holding
+the phone.
+
+See **[docs/TUNING.md](docs/TUNING.md)** for the full parameter table and a
+list of things that were investigated and ruled out.
+
+## Known limitations
+- Requires Android 12 (API 31) or newer.
+- Shows the system's screen-recording indicator for as long as the feature
+  is enabled, not just during a tilt — the cost of keeping one capture
+  session open instead of re-prompting for consent on every gesture.
+- Apps that set `FLAG_SECURE` (banking, Netflix, password managers) capture
+  as black, not blurred — an Android-wide protection with no workaround from
+  here.
+- Ray-traced mode needs API 33+ for AGSL `RuntimeShader` support, and even
+  there it can fail to compile on a given device's GPU driver; either case
+  falls back to the classic lean/scale renderer automatically.
+- Sensor calibration ("Recalibrate") is needed on first launch, and again any
+  time holding the phone at an angle becomes your new "neutral" pose — the
+  effect measures deviation from whatever pose was neutral when last
+  calibrated, not absolute level.
 
 ## Credits
 This project ports the geometric ray-trace fold model from
@@ -134,56 +139,3 @@ SwiftUI/Metal), generalized from that project's single left/right hinge to
 all four screen edges. The classic lean/scale fallback is an independent
 approximation built for this project, for older-device compatibility rather
 than ported from anywhere.
-
-## Things that were investigated and can't be done
-Recording these so they don't get re-attempted:
-
-- **Hiding the system bars while the effect runs.** Not possible from this
-  app. `TYPE_APPLICATION_OVERLAY` is specifically barred from drawing over or
-  controlling the status and navigation bars — an intentional Android 8.0
-  security decision with no app-level workaround. The bars already render
-  *above* the overlay for the same reason. Doing this would need the app to
-  be the foreground Activity (which it isn't — it's an overlay over other
-  apps), the signature-level `STATUS_BAR` permission, or root.
-- **Continuous live capture behind the fold**, instead of one frozen frame
-  per gesture. The single-frame path avoids capturing itself by grabbing its
-  frame *before* the overlay is shown, then parking the `VirtualDisplay`.
-  That doesn't extend to continuous capture: while the overlay is up it's
-  part of the screen, so it lands in the next frame and compounds. There's
-  no public API to exclude one window from a `MediaProjection` mirror of the
-  same display.
-- **Removing the "unknown sources" / Play Protect prompt on install.** Both
-  are the OS's own warning for anything installed outside the Play Store, not
-  a check against this app specifically, and there's no app-side signing,
-  manifest flag, or permission that opts out of them — only Play Store
-  distribution or an enterprise MDM allowlist would. See *About the
-  install-time warnings* above for what actually is fixable here.
-
-## Everything else that's tunable
-| Control | Default | Applies to | Toggle | What it does |
-| --- | --- | --- | --- | --- |
-| Activation threshold | 12° | Both | — | How far from neutral before the effect starts |
-| Full-tilt point | 30° | Both | — | Deviation at which the effect hits full strength |
-| Perspective | 40% | Classic | Yes | Camera distance (depth), not lean angle — the lean itself is a fixed, modest 8° swing |
-| Recede | 10% | Classic | Yes | How much the frame shrinks at full tilt, coupled to the same curve as the lean |
-| Motion Softness | 25% | Classic | Yes | Spring damping on the lean/recede motion — low settles cleanly, high overshoots and bounces before settling |
-| View distance | 300mm | Ray-traced | Yes | How far the eye sits from the content plane — closer is a more extreme perspective |
-| Blur per mm | 1.5px | Ray-traced | Yes | Blur radius gained per mm of glass-to-plane gap |
-| Max blur radius | 48px | Ray-traced | Yes | Ceiling on that radius |
-| Darken per mm | 2.0% | Ray-traced | Yes | Light lost per mm of that gap |
-| Max darken | 80% | Ray-traced | Yes | Ceiling on that loss |
-| Blur | 40px | Shared | Yes | Peak blur radius, graded from none at the hinge edge to full strength at the far edge in both modes |
-| Dim | 55% | Shared | Yes | How dark the frame goes at full tilt |
-| Edge Fade | 30% | Shared | Yes | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
-| Corner Radius | 100% | Shared | Yes | Fraction of this device's actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) |
-| Flip tilt direction | off | Both | — (itself a switch) | Turn on if the frame ever leans the opposite way from how you tilt the phone |
-
-Turning a slider's switch off treats that one parameter as having no effect
-(View distance is the one exception — it falls back to its default instead,
-since a ray-traced fold can't work with a zero eye distance) without
-resetting or losing the value the slider is set to.
-
-"Reset to defaults," next to the Tuning header, writes every value above
-back to its starting point in one tap, including re-detecting the device's
-actual corner radius rather than restoring whatever radius happened to be
-resolved the first time the app ran.
