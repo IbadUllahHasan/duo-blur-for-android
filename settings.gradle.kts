@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "FoldEcho"
+rootProject.name = "DuoFlow"
 include(":app")

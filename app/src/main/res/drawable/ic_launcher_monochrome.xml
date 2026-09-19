@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flat single-color version of ic_launcher_foreground for Android 13+ themed (Material You) icons, where the system supplies its own tint. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M38,30H60A10,10 0 0 1 70,40V74A10,10 0 0 1 60,84H38A10,10 0 0 1 28,74V40A10,10 0 0 1 38,30Z"
+        android:fillColor="#FFFFFF" />
+    <group android:pivotX="59" android:pivotY="47" android:rotation="12">
+        <path
+            android:pathData="M48,20H70A10,10 0 0 1 80,30V64A10,10 0 0 1 70,74H48A10,10 0 0 1 38,64V30A10,10 0 0 1 48,20Z"
+            android:fillColor="#FFFFFF" />
+    </group>
+</vector>

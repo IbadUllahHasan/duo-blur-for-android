@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The "DuoFlow" mark: two overlapping cards — the "Duo" — with the front one
+  leaning like the fold transition itself, trailing two faint ghost outlines
+  off its tilt to stand in for "Flow"/the graded blur the app actually draws.
+  Kept to two solid shapes plus thin strokes so it still reads at launcher
+  size; all geometry stays inside the ~66dp adaptive-icon safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group android:pivotX="59" android:pivotY="47" android:rotation="30">
+        <path
+            android:pathData="M48,20H70A10,10 0 0 1 80,30V64A10,10 0 0 1 70,74H48A10,10 0 0 1 38,64V30A10,10 0 0 1 48,20Z"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeAlpha="0.14"
+            android:strokeWidth="2" />
+    </group>
+
+    <group android:pivotX="59" android:pivotY="47" android:rotation="21">
+        <path
+            android:pathData="M48,20H70A10,10 0 0 1 80,30V64A10,10 0 0 1 70,74H48A10,10 0 0 1 38,64V30A10,10 0 0 1 48,20Z"
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeAlpha="0.26"
+            android:strokeWidth="2" />
+    </group>
+
+    <path android:pathData="M38,30H60A10,10 0 0 1 70,40V74A10,10 0 0 1 60,84H38A10,10 0 0 1 28,74V40A10,10 0 0 1 38,30Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="28" android:startY="30"
+                android:endX="70" android:endY="84"
+                android:startColor="#4A5AA8"
+                android:endColor="#2E3B7C" />
+        </aapt:attr>
+    </path>
+
+    <group android:pivotX="59" android:pivotY="47" android:rotation="12">
+        <path android:pathData="M48,20H70A10,10 0 0 1 80,30V64A10,10 0 0 1 70,74H48A10,10 0 0 1 38,64V30A10,10 0 0 1 48,20Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="38" android:startY="20"
+                    android:endX="80" android:endY="74"
+                    android:startColor="#9ED6FF"
+                    android:endColor="#D3BFE0" />
+            </aapt:attr>
+        </path>
+    </group>
+</vector>

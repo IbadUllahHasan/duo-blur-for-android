@@ -203,7 +203,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         val manager = getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "FoldEcho", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, "DuoFlow", NotificationManager.IMPORTANCE_LOW)
             )
         }
 
@@ -224,9 +224,9 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("FoldEcho is watching for tilt")
+            .setContentTitle("DuoFlow is watching for tilt")
             .setContentText("Tilt the phone to trigger the effect anywhere on the device.")
-            .setSmallIcon(android.R.drawable.ic_menu_rotate)
+            .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentIntent(openPanel)
             .setOngoing(true)
             .addAction(0, "Recalibrate", recalibrate)
