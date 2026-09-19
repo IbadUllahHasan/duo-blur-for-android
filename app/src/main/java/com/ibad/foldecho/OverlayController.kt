@@ -152,7 +152,8 @@ class OverlayController(private val context: Context) {
         scrim?.alpha = effect.dim
         edgeFade?.alpha = effect.edgeFadeAlpha
 
-        val targetRadiusPx = tunables.cornerRadiusStrength.coerceIn(0f, 1f) * tunables.cornerRadiusBaseDp * density
+        val cornerRadiusStrength = if (tunables.cornerRadiusEnabled) tunables.cornerRadiusStrength else 0f
+        val targetRadiusPx = cornerRadiusStrength.coerceIn(0f, 1f) * tunables.cornerRadiusBaseDp * density
         if (targetRadiusPx != cornerRadiusPx) {
             cornerRadiusPx = targetRadiusPx
             cardView.invalidateOutline()
@@ -217,18 +218,26 @@ class OverlayController(private val context: Context) {
         warnIfFrameDoesNotFitOverlay(imageView)
 
         val pxPerMm = pixelsPerMm()
+        // Each toggle treats its slider as 0 (no contribution) when off,
+        // except View distance: 0 there isn't a usable "off" since the ray
+        // math divides by it, so it falls back to the class default instead.
+        val viewDistanceMm = if (tunables.viewDistanceEnabled) tunables.viewDistanceMm else DEFAULT_TUNABLES.viewDistanceMm
+        val blurPerMm = if (tunables.blurPerMmEnabled) tunables.blurPerMm else 0f
+        val maxBlurRadiusPx = if (tunables.maxBlurRadiusEnabled) tunables.maxBlurRadiusPx else 0f
+        val darkenPerMm = if (tunables.darkenPerMmEnabled) tunables.darkenPerMm else 0f
+        val maxDarken = if (tunables.maxDarkenEnabled) tunables.maxDarken else 0f
         return shader.renderEffect(
             widthPx = imageView.width.toFloat(),
             heightPx = imageView.height.toFloat(),
             tiltDegrees = effect.foldTiltDeg,
-            hingeAxis = effect.hingeAxis,
-            hingeSide = effect.hingeSide,
-            eyeDistancePx = tunables.viewDistanceMm * pxPerMm,
+            tiltDirX = effect.directionRight,
+            tiltDirY = effect.directionUp,
+            eyeDistancePx = viewDistanceMm * pxPerMm,
             // The shader works in px per px of gap; the sliders are per mm.
-            blurSpread = tunables.blurPerMm / pxPerMm,
-            maxBlurRadiusPx = tunables.maxBlurRadiusPx,
-            darkenPerPx = tunables.darkenPerMm / pxPerMm,
-            maxDarken = tunables.maxDarken
+            blurSpread = blurPerMm / pxPerMm,
+            maxBlurRadiusPx = maxBlurRadiusPx,
+            darkenPerPx = darkenPerMm / pxPerMm,
+            maxDarken = maxDarken
         )
     }
 
@@ -293,10 +302,11 @@ class OverlayController(private val context: Context) {
         view.scaleY = 1f
     }
 
-    /** Drives [target] through [spring], damping set from Motion Softness (0 is the cleanest settle the spring allows, not "off" — there's no disable state now, only how soft). */
+    /** Drives [target] through [spring], damping set from Motion Softness. Disabling the toggle treats softness as 0 — the cleanest settle the spring allows, same value the slider's low end already means. */
     private fun applyMotion(spring: SpringAnimation?, target: Float, tunables: Tunables) {
         if (spring == null) return
-        val softness = tunables.motionSoftness.coerceIn(0f, 1f)
+        val rawSoftness = if (tunables.motionSoftnessEnabled) tunables.motionSoftness else 0f
+        val softness = rawSoftness.coerceIn(0f, 1f)
         spring.spring.stiffness = springStiffness
         spring.spring.dampingRatio = maxDampingRatio - softness * (maxDampingRatio - minDampingRatio)
         spring.animateToFinalPosition(target)
@@ -403,5 +413,6 @@ class OverlayController(private val context: Context) {
     private companion object {
         const val MM_PER_INCH = 25.4f
         const val TAG = "FoldEchoOverlay"
+        val DEFAULT_TUNABLES = Tunables()
     }
 }

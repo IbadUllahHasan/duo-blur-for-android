@@ -28,8 +28,8 @@ class FoldShader private constructor(private val shader: RuntimeShader) {
         widthPx: Float,
         heightPx: Float,
         tiltDegrees: Float,
-        hingeAxis: Float,
-        hingeSide: Float,
+        tiltDirX: Float,
+        tiltDirY: Float,
         eyeDistancePx: Float,
         blurSpread: Float,
         maxBlurRadiusPx: Float,
@@ -38,8 +38,7 @@ class FoldShader private constructor(private val shader: RuntimeShader) {
     ): RenderEffect {
         shader.setFloatUniform("resolution", widthPx, heightPx)
         shader.setFloatUniform("tiltDegrees", tiltDegrees)
-        shader.setFloatUniform("hingeAxis", hingeAxis)
-        shader.setFloatUniform("hingeSide", hingeSide)
+        shader.setFloatUniform("tiltDir", tiltDirX, tiltDirY)
         shader.setFloatUniform("eyeDistancePx", eyeDistancePx)
         shader.setFloatUniform("blurSpread", blurSpread)
         shader.setFloatUniform("maxBlurRadius", maxBlurRadiusPx)
