@@ -7,14 +7,12 @@ hinge sensor. Two rendering modes: a ray-traced geometric fold (Android 13+)
 and a classic lean/scale transform as a fallback (Android 12+).
 
 ## Screenshots
-Add these under `screenshots/` in the repo with the filenames below —
-they're referenced but not included in this commit.
 
 | | |
 |---|---|
-| ![Classic mode, tilted left](screenshots/classic-tilt-left.png) | ![Ray-traced mode, tilted right](screenshots/raytraced-tilt-right.png) |
+| ![Classic mode, tilted left](screenshots/classic-tilt-left.jpg) | ![Ray-traced mode, tilted right](screenshots/raytraced-tilt-right.jpg) |
 | Classic mode, tilted left — the near edge stays sharp, the far edge blurs. | Ray-traced mode, tilted right — same graduated effect, a different rendering model underneath. |
-| ![Control panel, Tuning section](screenshots/control-panel-tuning.png) | ![Effect over real app content](screenshots/real-app-content.png) |
+| ![Control panel, Tuning section](screenshots/control-panel-tuning.jpg) | ![Effect over real app content](screenshots/real-app-content.jpg) |
 | Control panel, Tuning section — mode selector and live parameters. | The effect applied over real app content (Messages, Home, etc.), not a demo screen. |
 
 ## How it works
