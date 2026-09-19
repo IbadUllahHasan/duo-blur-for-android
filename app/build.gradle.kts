@@ -11,8 +11,12 @@ android {
         applicationId = "com.ibad.foldecho"
         minSdk = 31
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        // The release workflow derives these from the pushed tag (so a tag and
+        // its APK's version can never drift apart) and exports them as env vars
+        // before building; unset for local/day-to-day builds, which fall back
+        // to the hardcoded values below.
+        versionCode = System.getenv("RELEASE_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("RELEASE_VERSION_NAME") ?: "1.0.0"
     }
 
     // Release signing comes entirely from environment variables so no keystore

@@ -72,6 +72,11 @@ repo's Releases page automatically (or run it manually from **Actions** →
 debug-signed build (logged as a warning in the run) so a release still goes
 out.
 
+The app's `versionName`/`versionCode` are derived from the tag itself (e.g.
+`v1.2.3` → versionName `1.2.3`), not from anything hardcoded in
+`app/build.gradle.kts` — so every tag automatically produces an installable
+upgrade over the last one, with no manual version bump to remember.
+
 To get a properly *signed* release instead (recommended), add these four
 repository secrets once, under **Settings → Secrets and variables → Actions
 → New repository secret**:
