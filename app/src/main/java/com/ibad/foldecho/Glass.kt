@@ -1,14 +1,8 @@
 package com.ibad.foldecho
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.InteractionSource
@@ -18,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -36,10 +29,6 @@ import com.kashif_e.backdrop.effects.lens
 import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.highlight.HighlightStyle
-import kotlin.math.atan2
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
 
 /**
  * Corner radius is context-aware, not one flat constant: bigger surfaces read
@@ -125,23 +114,20 @@ val LocalGlassPalette = compositionLocalOf { DarkGlassPalette }
  */
 val LocalBackdrop = compositionLocalOf<Backdrop?> { null }
 
-/** 45° is the library's own rest angle for HighlightStyle.Default. */
-private const val REST_LIGHT_ANGLE_DEG = 45f
-
-/** Tilt (in degrees) that counts as a full-scale lean for the highlight. */
-private const val TILT_FULL_SCALE_DEG = 45f
-
-/** How far a full-scale lean pulls the light away from its rest direction. */
-private const val TILT_LIGHT_GAIN = 0.9f
-
-// Not `const`: a const initializer has to be a compile-time constant, and
-// `.toFloat()` is a call.
-private val DEG_TO_RAD = (PI / 180.0).toFloat()
+/**
+ * The one light-source angle every card's highlight uses, forever. 45° is the
+ * library's own default for HighlightStyle.Default.
+ *
+ * Deliberately a constant and not derived from anything: the highlight must
+ * look identical at all times and must not respond to device orientation, so
+ * there is nothing here to read a sensor from.
+ */
+private const val HIGHLIGHT_ANGLE_DEG = 45f
 
 /**
  * The reusable "pane of glass": real backdrop refraction of whatever is behind
- * it, plus a tilt-reactive specular highlight. [content] still owns its own
- * padding — this only draws the surface itself.
+ * it, plus a fixed specular highlight. [content] still owns its own padding —
+ * this only draws the surface itself.
  *
  * Effects run in the order the library documents as the iOS-style stack:
  * saturate, soften, then bend. `lens` is what actually distorts the dot grid;
@@ -155,7 +141,6 @@ fun GlassSurface(
 ) {
     val backdrop = LocalBackdrop.current
     val palette = LocalGlassPalette.current
-    val highlightAngle = rememberHighlightAngle()
 
     val glass = if (backdrop != null) {
         Modifier
@@ -170,16 +155,15 @@ fun GlassSurface(
                         refractionAmount = palette.lensRefractionAmount.toPx()
                     )
                 },
-                // Read inside the lambda on purpose: the library re-evaluates
-                // these per frame, so the angle tracks the sensor without
-                // rebuilding the modifier chain on every tilt reading.
+                // Static: a fixed angle, and colour/alpha that vary only by
+                // theme. Nothing in here changes once the theme is resolved.
                 highlight = {
                     Highlight(
                         width = palette.highlightWidth,
                         alpha = palette.specularAlpha,
                         style = HighlightStyle.Default(
                             color = palette.specularColor,
-                            angle = highlightAngle
+                            angle = HIGHLIGHT_ANGLE_DEG
                         )
                     )
                 },
@@ -204,78 +188,27 @@ fun GlassSurface(
 }
 
 /**
- * Maps the same tilt reading that drives the fold effect
- * (FoldEchoState.tiltUpDeg/tiltRightDeg) onto the light-source angle of every
- * card's highlight, so leaning the phone swings the sheen around the glass.
+ * The backdrop every glass card samples: a static field of small dots over the
+ * theme background.
  *
- * The lean is sprung as a *vector* and only then converted to an angle.
- * Springing the angle itself would take the long way round whenever it wrapped
- * past ±180°, sending the highlight spinning all the way around the card on
- * what was physically a tiny movement. Adding a fixed rest vector at
- * [REST_LIGHT_ANGLE_DEG] also keeps a still phone stable: without it, a lean of
- * almost exactly zero leaves the angle at the mercy of sensor noise.
- */
-@Composable
-private fun rememberHighlightAngle(): Float {
-    val tiltUp by FoldEchoState.tiltUpDeg.collectAsState()
-    val tiltRight by FoldEchoState.tiltRightDeg.collectAsState()
-
-    val leanX by animateFloatAsState(
-        targetValue = (tiltRight / TILT_FULL_SCALE_DEG).coerceIn(-1f, 1f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "highlightLeanX"
-    )
-    val leanY by animateFloatAsState(
-        targetValue = (-tiltUp / TILT_FULL_SCALE_DEG).coerceIn(-1f, 1f),
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "highlightLeanY"
-    )
-
-    val restRadians = REST_LIGHT_ANGLE_DEG * DEG_TO_RAD
-    val x = cos(restRadians) + leanX * TILT_LIGHT_GAIN
-    val y = sin(restRadians) + leanY * TILT_LIGHT_GAIN
-    return atan2(y, x) / DEG_TO_RAD
-}
-
-/**
- * The backdrop every glass card samples: a field of small dots over the theme
- * background, drifting continuously so there is always motion for the glass to
- * refract even when the phone is perfectly still.
+ * It is deliberately motionless — no drift animation, nothing driven by the
+ * tilt sensor. The glass effect is demonstrated by the cards moving over this
+ * field as the panel scrolls, so the field itself staying put is the whole
+ * point: it is the fixed reference the refraction distorts against. A
+ * background that also moved would muddy that.
  *
- * The drift runs 0..1 over exactly one cell and restarts, so the field wraps
- * seamlessly and can loop forever with no visible jump. A row and column of
- * dots beyond each edge cover what the offset pulls in.
+ * Drawn as a sibling *behind* the scrolling content, never inside the scroll
+ * container, so scrolling moves the cards across it rather than dragging it
+ * along with them.
  *
- * This paints its own opaque background rather than letting the Surface behind
- * it show through: the backdrop layer captures only what this composable
- * draws, and a transparent capture would leave the glass sampling nothing.
+ * This paints its own opaque base rather than letting the Surface behind it
+ * show through: the backdrop layer captures only what this composable draws,
+ * and a transparent capture would leave the glass sampling nothing.
  */
 @Composable
 fun DotGridBackground(modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
     val baseColor = MaterialTheme.colorScheme.background
-    val transition = rememberInfiniteTransition(label = "dotGrid")
-
-    val driftX by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(19_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "dotDriftX"
-    )
-    val driftY by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            // Deliberately not a multiple of the X period, so the field never
-            // settles into an obvious repeating diagonal.
-            animation = tween(27_000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "dotDriftY"
-    )
 
     Box(
         modifier
@@ -285,18 +218,21 @@ fun DotGridBackground(modifier: Modifier = Modifier) {
 
                 val step = DOT_SPACING.toPx()
                 val radius = DOT_RADIUS.toPx()
-                val offsetX = driftX * step
-                val offsetY = driftY * step
-                val columns = (size.width / step).toInt() + 2
-                val rows = (size.height / step).toInt() + 2
+                val columns = (size.width / step).toInt()
+                val rows = (size.height / step).toInt()
+
+                // Half a cell in from the edge, so the field is inset evenly on
+                // both sides instead of clipping a row flush against one edge.
+                val originX = step / 2f
+                val originY = step / 2f
 
                 for (column in 0..columns) {
-                    val x = column * step - step + offsetX
+                    val x = originX + column * step
                     for (row in 0..rows) {
                         drawCircle(
                             color = palette.dotColor,
                             radius = radius,
-                            center = Offset(x, row * step - step + offsetY)
+                            center = Offset(x, originY + row * step)
                         )
                     }
                 }

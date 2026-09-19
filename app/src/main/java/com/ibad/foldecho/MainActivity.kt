@@ -15,7 +15,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -23,8 +22,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -72,7 +69,6 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -80,22 +76,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.kashif_e.backdrop.backdrops.layerBackdrop
 import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
-import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -236,126 +224,44 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Hosts the backdrop source (the dot grid) and the scrolling content in one
- * Box, and renders overscroll as a translation of that whole Box instead of
- * letting the scroll container render its own stretch.
+ * Hosts the backdrop source and the scrolling content as siblings in one Box:
+ * the dot grid behind, fixed, and the scrolling panel in front of it.
  *
- * The original reason for this was Haze-specific and no longer applies: Haze
- * drew each card's backdrop in the *background's* layer from layout-time
- * coordinates, so the draw-time overscroll stretch pulled the card away from
- * its own backdrop and exposed the punched-out rectangle as a "ghost" layer.
- * The backdrop library doesn't work that way — LayerBackdrop draws the sampled
- * layer inside the card's own draw scope, so card and backdrop deform together
- * no matter what transforms the scroller applies, and that particular bug
- * can't recur.
+ * The grid is deliberately *outside* the scroll container and carries no
+ * transform of its own, so it stays put while the cards travel over it. That
+ * is what makes the glass legible: each card refracts whatever part of the
+ * fixed field it currently covers, and scrolling alone is what animates the
+ * effect. No extra code drives it.
  *
- * The single shared translation is kept anyway. It is what makes the dot grid
- * rubber-band *with* the cards rather than sitting still behind them, and it
- * is the behaviour that was verified on-device; swapping it back to the stock
- * stretch would be an unforced change to something already known to work.
+ * This replaces an earlier arrangement that translated the whole Box —
+ * background included — as a custom overscroll rubber-band. That moved the
+ * grid along with the cards, which is exactly what must not happen now, so
+ * both it and the accompanying stock-overscroll suppression are gone. The
+ * scroll container's own overscroll is left alone.
+ *
+ * The bug that arrangement originally existed for was Haze-specific: Haze drew
+ * each card's backdrop in the *background's* layer from layout-time
+ * coordinates, so a draw-time overscroll stretch pulled a card away from its
+ * own backdrop and exposed the punched-out rectangle as a "ghost" layer.
+ * LayerBackdrop draws the sampled layer inside the card's own draw scope
+ * instead, so card and backdrop transform together whatever the scroller does,
+ * and that bug cannot recur here.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
     val scrollState = rememberScrollState()
-    val scope = rememberCoroutineScope()
-    val overscroll = remember { Animatable(0f) }
-    val maxOverscrollPx = with(LocalDensity.current) { 56.dp.toPx() }
     // One backdrop for the whole screen, remembered here at the scaffold and
     // handed down: every card samples this same captured layer. Creating one
     // per card would discard the capture on each recomposition.
     val backdrop = rememberLayerBackdrop()
 
-    val rubberBand = remember(scope, overscroll, maxOverscrollPx) {
-        object : NestedScrollConnection {
-            /** Dragging back toward the content unwinds the rubber-band before the list scrolls again. */
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val current = overscroll.value
-                if (source != NestedScrollSource.Drag || current == 0f) return Offset.Zero
-                if (current > 0f && available.y >= 0f) return Offset.Zero
-                if (current < 0f && available.y <= 0f) return Offset.Zero
-                val applied = if (current > 0f) {
-                    available.y.coerceAtLeast(-current)
-                } else {
-                    available.y.coerceAtMost(-current)
-                }
-                scope.launch { overscroll.snapTo(current + applied) }
-                return Offset(0f, applied)
-            }
-
-            /** Whatever the list could not use at either end becomes rubber-band travel. */
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                if (source != NestedScrollSource.Drag || available.y == 0f) return Offset.Zero
-                val target = (overscroll.value + available.y * OVERSCROLL_RESISTANCE)
-                    .coerceIn(-maxOverscrollPx, maxOverscrollPx)
-                scope.launch { overscroll.snapTo(target) }
-                return Offset(0f, available.y)
-            }
-
-            /** Let go while stretched: spring back, and swallow the fling that would otherwise follow. */
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (overscroll.value == 0f) return Velocity.Zero
-                overscroll.animateTo(
-                    targetValue = 0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    )
-                )
-                return available
-            }
-
-            /**
-             * A fling that runs *into* an end arrives here with velocity left
-             * over, having never produced an out-of-bounds drag for
-             * onPostScroll to pick up. Without this, flinging at the list ends
-             * would be the one gesture with no overscroll feedback at all.
-             */
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (available.y == 0f) return Velocity.Zero
-                overscroll.snapTo(
-                    (available.y * FLING_BOUNCE_SECONDS)
-                        .coerceIn(-maxOverscrollPx, maxOverscrollPx)
-                )
-                overscroll.animateTo(
-                    targetValue = 0f,
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioLowBouncy,
-                        stiffness = Spring.StiffnessMedium
-                    )
-                )
-                return available
-            }
-        }
-    }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .nestedScroll(rubberBand)
-            .graphicsLayer { translationY = overscroll.value }
-    ) {
+    Box(Modifier.fillMaxSize()) {
         DotGridBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
-        // The scroll container must not also run a stretch of its own, or the
-        // scene would be transformed twice over.
-        CompositionLocalProvider(
-            LocalBackdrop provides backdrop,
-            LocalOverscrollConfiguration provides null
-        ) {
+        CompositionLocalProvider(LocalBackdrop provides backdrop) {
             content(scrollState)
         }
     }
 }
-
-/** Fraction of an out-of-bounds drag that becomes rubber-band travel. */
-private const val OVERSCROLL_RESISTANCE = 0.4f
-
-/** Leftover fling velocity (px/s) is worth this many seconds of bounce travel, then clamped. */
-private const val FLING_BOUNCE_SECONDS = 0.06f
 
 /** Dark palette — surfaces step up in tone (background < surface < surfaceContainer). Glass cards use their own translucent tint on top of this via GlassPalette, not these surface colors directly. */
 private val FoldEchoDarkColors = darkColorScheme(
