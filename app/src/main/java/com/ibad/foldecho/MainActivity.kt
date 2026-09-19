@@ -11,16 +11,29 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,11 +41,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -40,7 +53,11 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
@@ -54,11 +71,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import kotlin.math.roundToInt
 
 /**
@@ -99,28 +119,35 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme(colorScheme = FoldEchoColors) {
+            val darkTheme = isSystemInDarkTheme()
+            MaterialTheme(colorScheme = if (darkTheme) FoldEchoDarkColors else FoldEchoLightColors) {
                 val running by FoldEchoState.running.collectAsState()
                 val effectActive by FoldEchoState.effectActive.collectAsState()
                 val deviation by FoldEchoState.deviationDeg.collectAsState()
+                val hazeState = remember { HazeState() }
 
                 CompositionLocalProvider(
                     LocalHaptics provides haptics,
-                    LocalUiHapticsEnabled provides tunables.uiHapticsEnabled
+                    LocalUiHapticsEnabled provides tunables.uiHapticsEnabled,
+                    LocalGlassPalette provides if (darkTheme) DarkGlassPalette else LightGlassPalette,
+                    LocalHazeState provides hazeState
                 ) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        ControlPanel(
-                            running = running,
-                            effectActive = effectActive,
-                            deviationDeg = deviation,
-                            tunables = tunables,
-                            canDrawOverlays = canDrawOverlays,
-                            onToggle = ::toggleService,
-                            onRecalibrate = ::recalibrate,
-                            onGrantOverlay = ::requestOverlayPermission,
-                            onTunablesChange = ::updateTunables,
-                            onResetTunables = ::resetTunables
-                        )
+                        Box(Modifier.fillMaxSize()) {
+                            AmbientBackground(Modifier.fillMaxSize().haze(state = hazeState))
+                            ControlPanel(
+                                running = running,
+                                effectActive = effectActive,
+                                deviationDeg = deviation,
+                                tunables = tunables,
+                                canDrawOverlays = canDrawOverlays,
+                                onToggle = ::toggleService,
+                                onRecalibrate = ::recalibrate,
+                                onGrantOverlay = ::requestOverlayPermission,
+                                onTunablesChange = ::updateTunables,
+                                onResetTunables = ::resetTunables
+                            )
+                        }
                     }
                 }
             }
@@ -164,8 +191,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-/** A dark, tonal Material You-style palette — surfaces step up in tone (background < surface < surfaceContainer) instead of the flat single-surface-color scheme this used to be. */
-private val FoldEchoColors = darkColorScheme(
+/** Dark palette — surfaces step up in tone (background < surface < surfaceContainer). Glass cards use their own translucent tint on top of this via GlassPalette, not these surface colors directly. */
+private val FoldEchoDarkColors = darkColorScheme(
     primary = Color(0xFF9ED6FF),
     onPrimary = Color(0xFF00344E),
     primaryContainer = Color(0xFF00496D),
@@ -182,6 +209,26 @@ private val FoldEchoColors = darkColorScheme(
     surfaceContainerHigh = Color(0xFF23252C),
     outline = Color(0xFF8C9199),
     outlineVariant = Color(0xFF42474E)
+)
+
+/** Light counterpart — not just an inverted dark theme; tuned separately so glass tint/specular actually read against a bright background instead of washing out. */
+private val FoldEchoLightColors = lightColorScheme(
+    primary = Color(0xFF00618A),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFC4E7FF),
+    onPrimaryContainer = Color(0xFF001E2C),
+    secondary = Color(0xFF4C6172),
+    tertiary = Color(0xFF5F5470),
+    background = Color(0xFFF6F8FA),
+    onBackground = Color(0xFF1A1C1E),
+    surface = Color(0xFFFAFCFE),
+    onSurface = Color(0xFF1A1C1E),
+    surfaceVariant = Color(0xFFDCE3E9),
+    onSurfaceVariant = Color(0xFF41484D),
+    surfaceContainer = Color(0xFFEFF2F5),
+    surfaceContainerHigh = Color(0xFFE9ECEF),
+    outline = Color(0xFF72787E),
+    outlineVariant = Color(0xFFC1C7CD)
 )
 
 /** Resolved once in MainActivity.onCreate and handed down so any control can give a light tap without threading a parameter through every call site. Null only before composition ever runs. */
@@ -293,7 +340,6 @@ private fun ControlPanel(
         )
 
         Spacer(Modifier.height(28.dp))
-        var showTuningHelp by remember { mutableStateOf(false) }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -307,18 +353,13 @@ private fun ControlPanel(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Spacer(Modifier.width(6.dp))
-                InfoDot { showTuningHelp = !showTuningHelp }
+                InfoTooltip(
+                    text = "Adjustments apply immediately, even while the effect is running. " +
+                        "Each slider's switch turns that parameter off without losing its value.",
+                    glyph = "?"
+                )
             }
             TextButton(onClick = onResetTunables) { Text("Reset to defaults") }
-        }
-        if (showTuningHelp) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Adjustments apply immediately, even while the effect is running. Each slider's " +
-                    "switch turns that parameter off without losing its value.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
         Spacer(Modifier.height(14.dp))
 
@@ -632,13 +673,10 @@ private fun ControlPanel(
     }
 }
 
-/** The tonal card shell every tuning section shares — one consistent rounded surface instead of bare Columns with a text label above them. */
+/** The glass shell every tuning section shares — real backdrop blur of the ambient background via Haze, not a flat translucent color. */
 @Composable
 private fun TuningGroup(content: @Composable () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
+    GlassSurface(shape = RoundedCornerShape(GlassRadii.card)) {
         Column(Modifier.padding(16.dp)) { content() }
     }
 }
@@ -646,21 +684,23 @@ private fun TuningGroup(content: @Composable () -> Unit) {
 /**
  * A collapsed-by-default section for the raw parameters behind a card's
  * simple dial (or, with a custom [title], a whole card's only content, e.g.
- * "Finishing touches"). Kept as a plain conditional instead of an animated
- * reveal to avoid pulling in another Compose dependency for this pass.
+ * "Finishing touches"). Spring-based expand/collapse via AnimatedVisibility.
  */
 @Composable
 private fun AdvancedSection(title: String = "Advanced", content: @Composable () -> Unit) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
     var expanded by rememberSaveable { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
     Column {
         Spacer(Modifier.height(4.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .clickable {
+                .scale(pressScale)
+                .clip(RoundedCornerShape(GlassRadii.control))
+                .clickable(interactionSource = interactionSource, indication = null) {
                     if (uiHapticsEnabled) haptics?.interfaceTick()
                     expanded = !expanded
                 }
@@ -679,26 +719,41 @@ private fun AdvancedSection(title: String = "Advanced", content: @Composable () 
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (expanded) {
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-            Spacer(Modifier.height(4.dp))
-            content()
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(spring(stiffness = Spring.StiffnessMedium)) +
+                expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)),
+            exit = fadeOut(spring(stiffness = Spring.StiffnessMedium)) +
+                shrinkVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+        ) {
+            Column {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                Spacer(Modifier.height(4.dp))
+                content()
+            }
         }
     }
 }
 
-/** A small "i" dot that toggles a plain-text explanation on tap, instead of always rendering it as a permanent subtitle. */
+/** A floating "i"/"?" dot that opens a real Material3 tooltip popover on long-press, instead of a permanent subtitle. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InfoDot(onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(18.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+private fun InfoTooltip(text: String, glyph: String = "i") {
+    val tooltipState = rememberTooltipState()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(text) } },
+        state = tooltipState
     ) {
-        Text("i", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(glyph, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
@@ -740,25 +795,43 @@ private fun SectionHeader(label: String) {
     )
 }
 
+/** A floating capsule with a spring-animated sliding indicator, instead of a full-width flat segmented row. */
 @Composable
 private fun ModeSelector(usingFold: Boolean, onSelect: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .padding(4.dp)
-    ) {
-        ModeOption(
-            label = "Ray-traced fold",
-            selected = usingFold,
-            modifier = Modifier.weight(1f)
-        ) { onSelect(true) }
-        ModeOption(
-            label = "Classic (lean/scale)",
-            selected = !usingFold,
-            modifier = Modifier.weight(1f)
-        ) { onSelect(false) }
+    GlassSurface(shape = CircleShape, modifier = Modifier.fillMaxWidth()) {
+        ModeSelectorContent(usingFold, onSelect)
+    }
+}
+
+@Composable
+private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+        val optionWidth = maxWidth / 2
+        val indicatorOffset by animateDpAsState(
+            targetValue = if (usingFold) 0.dp else optionWidth,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+            label = "pillIndicator"
+        )
+        Box(
+            Modifier
+                .offset(x = indicatorOffset)
+                .width(optionWidth)
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+        )
+        Row(Modifier.fillMaxWidth()) {
+            ModeOption(
+                label = "Ray-traced fold",
+                selected = usingFold,
+                modifier = Modifier.weight(1f)
+            ) { onSelect(true) }
+            ModeOption(
+                label = "Classic (lean/scale)",
+                selected = !usingFold,
+                modifier = Modifier.weight(1f)
+            ) { onSelect(false) }
+        }
     }
 }
 
@@ -766,13 +839,14 @@ private fun ModeSelector(usingFold: Boolean, onSelect: (Boolean) -> Unit) {
 private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
-    val background = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
     val foreground = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(background)
-            .clickable {
+            .scale(pressScale)
+            .clip(CircleShape)
+            .clickable(interactionSource = interactionSource, indication = null) {
                 if (uiHapticsEnabled) haptics?.interfaceTick()
                 onClick()
             }
@@ -802,10 +876,7 @@ private fun StatusCard(
         else -> "Off" to MaterialTheme.colorScheme.outline
     }
 
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-    ) {
+    GlassSurface(shape = RoundedCornerShape(GlassRadii.card)) {
         Column(Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -897,9 +968,7 @@ private fun StatusCard(
  * threshold and Full-tilt point, which always apply — a compact switch that
  * turns this one parameter off without discarding its dialed-in value.
  * [enabled] defaults to true and [onEnabledChange] to null so those two
- * sliders can call this without opting into a switch at all. The explanation
- * is hidden behind the "i" dot rather than always shown, to keep each row to
- * one line by default.
+ * sliders can call this without opting into a switch at all.
  */
 @Composable
 private fun TuningSlider(
@@ -914,7 +983,6 @@ private fun TuningSlider(
 ) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
-    var showHelp by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
     Column(Modifier.padding(vertical = 8.dp)) {
         Row(
@@ -929,7 +997,7 @@ private fun TuningSlider(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
                 )
                 Spacer(Modifier.width(6.dp))
-                InfoDot { showHelp = !showHelp }
+                InfoTooltip(help)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -952,14 +1020,6 @@ private fun TuningSlider(
                     )
                 }
             }
-        }
-        if (showHelp) {
-            Text(
-                help,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha * 0.85f),
-                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
-            )
         }
         Slider(
             value = value,
@@ -984,40 +1044,29 @@ private fun TuningToggle(
 ) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
-    var showHelp by remember { mutableStateOf(false) }
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(Modifier.width(6.dp))
-                InfoDot { showHelp = !showHelp }
-            }
-            Spacer(Modifier.width(12.dp))
-            Switch(
-                checked = checked,
-                onCheckedChange = {
-                    if (uiHapticsEnabled) haptics?.interfaceTick()
-                    onChange(it)
-                },
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                    checkedTrackColor = MaterialTheme.colorScheme.primary
-                )
-            )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.width(6.dp))
+            InfoTooltip(help)
         }
-        if (showHelp) {
-            Text(
-                help,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = {
+                if (uiHapticsEnabled) haptics?.interfaceTick()
+                onChange(it)
+            },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                checkedTrackColor = MaterialTheme.colorScheme.primary
             )
-        }
+        )
     }
 }

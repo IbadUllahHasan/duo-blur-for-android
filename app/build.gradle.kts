@@ -75,4 +75,10 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
+    // Pinned to 0.7.3 deliberately, not the latest release: it's the last version
+    // published against AndroidX Compose (kotlin-stdlib 1.9.24, compose-ui 1.6.7),
+    // matching this project's toolchain exactly. Newer Haze releases moved to
+    // Compose Multiplatform coordinates built with Kotlin 2.x, which this
+    // project's Kotlin 1.9.24 compiler cannot consume.
+    implementation("dev.chrisbanes.haze:haze:0.7.3")
 }
