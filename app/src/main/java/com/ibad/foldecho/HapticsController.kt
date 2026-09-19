@@ -11,6 +11,13 @@ import android.os.VibratorManager
  * groups, matching the two haptics toggles in the tuning panel: light
  * "interface" ticks for UI interaction, and the "fold" cues tied to the
  * tilt gesture itself (engage / release / safety auto-release).
+ *
+ * Switch flips do **not** come through here on API 34+. They go through
+ * View.performHapticFeedback(HapticFeedbackConstants.TOGGLE_ON/TOGGLE_OFF)
+ * instead, so they get the OEM's own tuned toggle haptic (Samsung's
+ * vibration HAL, for one) rather than a generic primitive we picked. See
+ * MainActivity.rememberToggleHaptic. [toggle] below is only the pre-34
+ * fallback, for devices where those constants don't exist yet.
  */
 class HapticsController(context: Context) {
     private val vibrator = context.getSystemService(VibratorManager::class.java)?.defaultVibrator
@@ -22,8 +29,28 @@ class HapticsController(context: Context) {
         VibrationEffect.Composition.PRIMITIVE_THUD
     ) ?: false
 
-    /** A light, low-strength tick for slider drags and switch flips. */
-    fun interfaceTick() = fire(VibrationEffect.Composition.PRIMITIVE_TICK, strength = 0.2f, fallbackMs = 8L)
+    /**
+     * Interface feedback strength. Deliberately well above the 0.2f this
+     * used to run at: at that level the tick was inaudible-by-touch on most
+     * actuators, which read as "the haptics are broken" rather than
+     * "the haptics are subtle".
+     */
+    private val interfaceStrength = 0.7f
+
+    /** A definite tap for slider releases, accordion headers and segmented-control picks. */
+    fun interfaceTick() =
+        fire(VibrationEffect.Composition.PRIMITIVE_CLICK, interfaceStrength, fallbackMs = 14L)
+
+    /**
+     * Pre-34 stand-in for TOGGLE_ON / TOGGLE_OFF: a firmer click going on, a
+     * lighter tick coming off, so the two directions stay distinguishable
+     * the way the platform constants are.
+     */
+    fun toggle(on: Boolean) = if (on) {
+        fire(VibrationEffect.Composition.PRIMITIVE_CLICK, interfaceStrength, fallbackMs = 16L)
+    } else {
+        fire(VibrationEffect.Composition.PRIMITIVE_TICK, interfaceStrength * 0.8f, fallbackMs = 11L)
+    }
 
     /** The fold effect engaging — a crisp "catch," like a hinge closing. */
     fun engage(strength: Float) = fire(VibrationEffect.Composition.PRIMITIVE_QUICK_RISE, strength, fallbackMs = 20L)

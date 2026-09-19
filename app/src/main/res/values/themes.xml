@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      The app window itself has to follow night mode, not just the Compose tree.
+      This replaces @android:style/Theme.Material.Light.NoActionBar, which was a
+      fixed *light*, non-DayNight platform theme: it kept a light windowBackground
+      behind the Compose surface in dark mode, and — because forceDarkAllowed
+      defaults to true on a light theme — left the platform free to auto-darken
+      the hierarchy on top of whatever Compose had already drawn. Compose owns
+      every colour in this app, so force-dark is turned off outright.
+
+      DeviceDefault.DayNight is API 29+; minSdk here is 31. It has no .NoActionBar
+      variant, so the two action-bar flags are set by hand.
+    -->
+    <style name="Theme.DuoFlow" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+
+</resources>

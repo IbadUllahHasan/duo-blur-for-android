@@ -64,11 +64,17 @@ data class GlassPalette(
     val ambientColors: List<Color>
 )
 
+/**
+ * Dark glass: a dark, fairly *opaque* pane. On a dark backdrop there is little
+ * luminance behind the card to work with, so the tint has to carry the surface
+ * itself, the blur goes wide to kill any remaining detail, and the specular is
+ * kept faint — a bright highlight on dark glass reads as a smear, not a sheen.
+ */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF1B1C22).copy(alpha = 0.55f),
-    cardBackdropBlurRadius = 28.dp,
+    cardTint = Color(0xFF1B1C22).copy(alpha = 0.62f),
+    cardBackdropBlurRadius = 32.dp,
     noiseFactor = 0.12f,
-    borderColor = Color.White.copy(alpha = 0.10f),
+    borderColor = Color.White.copy(alpha = 0.12f),
     specularColor = Color.White,
     specularAlpha = 0.10f,
     ambientColors = listOf(
@@ -79,13 +85,21 @@ val DarkGlassPalette = GlassPalette(
     )
 )
 
+/**
+ * Light glass: a *thinner*, whiter pane. The backdrop is already bright, so the
+ * tint can stay well back (0.40 vs dark's 0.62) and the blur can stay tighter
+ * without the card turning into a grey slab — and the specular has to be much
+ * stronger (0.45 vs 0.10) to be visible at all against a light background.
+ * These are the three axes that have to differ for the two themes to read as
+ * different materials rather than one palette with the lights turned up.
+ */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.55f),
-    cardBackdropBlurRadius = 28.dp,
-    noiseFactor = 0.08f,
-    borderColor = Color.White.copy(alpha = 0.6f),
+    cardTint = Color.White.copy(alpha = 0.40f),
+    cardBackdropBlurRadius = 20.dp,
+    noiseFactor = 0.04f,
+    borderColor = Color.White.copy(alpha = 0.75f),
     specularColor = Color.White,
-    specularAlpha = 0.35f,
+    specularAlpha = 0.45f,
     ambientColors = listOf(
         Color(0xFF90CAF9),
         Color(0xFFCE93D8),
@@ -121,8 +135,10 @@ fun GlassSurface(
                     base.hazeChild(
                         state = hazeState,
                         shape = shape,
+                        // No backgroundColor here on purpose: HazeDefaults.style()
+                        // only uses it to derive `tint` when tint is left out, so
+                        // passing both silently discarded it.
                         style = HazeDefaults.style(
-                            backgroundColor = palette.cardTint,
                             tint = palette.cardTint,
                             blurRadius = palette.cardBackdropBlurRadius,
                             noiseFactor = palette.noiseFactor

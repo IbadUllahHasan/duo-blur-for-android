@@ -8,10 +8,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -19,6 +21,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -65,6 +70,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -72,13 +78,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -133,9 +148,9 @@ class MainActivity : ComponentActivity() {
                     LocalHazeState provides hazeState
                 ) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        Box(Modifier.fillMaxSize()) {
-                            AmbientBackground(Modifier.fillMaxSize().haze(state = hazeState))
+                        GlassScene(hazeState = hazeState) { scrollState ->
                             ControlPanel(
+                                scrollState = scrollState,
                                 running = running,
                                 effectActive = effectActive,
                                 deviationDeg = deviation,
@@ -191,6 +206,104 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Hosts the Haze blur source *and* the scrolling content in one Box, and
+ * renders overscroll as a translation of that whole Box instead of letting the
+ * scroll container render its own stretch.
+ *
+ * This is the fix for the "ghost layer" behind cards at the scroll bounds.
+ * Haze does not draw a card's backdrop inside the card: AndroidHazeNode (the
+ * node attached to the *background*) records the background into a RenderNode,
+ * clips every registered hazeChild's rect out of it, and then draws a blurred
+ * copy of the background back into that rect. Every one of those rects comes
+ * from HazeArea.positionOnScreen, which HazeChildNode writes only in
+ * onPlaced() — layout time. Compose's default stretch overscroll, meanwhile,
+ * is a draw-time RenderEffect on the *scroller's* layer, and draw-time effects
+ * never re-run layout. So the moment the stretch began, the card's border,
+ * text and specular stretched away while its backdrop — and the hole punched
+ * in the background for it — stayed behind at the un-stretched position. The
+ * exposed punch-out is what read as an extra layer.
+ *
+ * So the cause was the Haze backdrop, not clipping: two transforms in two
+ * different layers, only one of which Haze knows about. Putting the source and
+ * the cards under a single translated parent means their *relative* geometry —
+ * all Haze actually uses — never changes, so the backdrop stays welded to its
+ * card. Overscroll still happens; it just happens once, in the right place.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun GlassScene(
+    hazeState: HazeState,
+    content: @Composable (ScrollState) -> Unit
+) {
+    val scrollState = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val overscroll = remember { Animatable(0f) }
+    val maxOverscrollPx = with(LocalDensity.current) { 56.dp.toPx() }
+
+    val rubberBand = remember(scope, overscroll, maxOverscrollPx) {
+        object : NestedScrollConnection {
+            /** Dragging back toward the content unwinds the rubber-band before the list scrolls again. */
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val current = overscroll.value
+                if (source != NestedScrollSource.Drag || current == 0f) return Offset.Zero
+                if (current > 0f && available.y >= 0f) return Offset.Zero
+                if (current < 0f && available.y <= 0f) return Offset.Zero
+                val applied = if (current > 0f) {
+                    available.y.coerceAtLeast(-current)
+                } else {
+                    available.y.coerceAtMost(-current)
+                }
+                scope.launch { overscroll.snapTo(current + applied) }
+                return Offset(0f, applied)
+            }
+
+            /** Whatever the list could not use at either end becomes rubber-band travel. */
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (source != NestedScrollSource.Drag || available.y == 0f) return Offset.Zero
+                val target = (overscroll.value + available.y * OVERSCROLL_RESISTANCE)
+                    .coerceIn(-maxOverscrollPx, maxOverscrollPx)
+                scope.launch { overscroll.snapTo(target) }
+                return Offset(0f, available.y)
+            }
+
+            /** Let go while stretched: spring back, and swallow the fling that would otherwise follow. */
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (overscroll.value == 0f) return Velocity.Zero
+                overscroll.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+                return available
+            }
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .nestedScroll(rubberBand)
+            .graphicsLayer { translationY = overscroll.value }
+    ) {
+        AmbientBackground(Modifier.fillMaxSize().haze(state = hazeState))
+        // The scroll container must not also run a stretch of its own — that
+        // second, Haze-invisible transform is exactly what this replaces.
+        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+            content(scrollState)
+        }
+    }
+}
+
+/** Fraction of an out-of-bounds drag that becomes rubber-band travel. */
+private const val OVERSCROLL_RESISTANCE = 0.4f
+
 /** Dark palette — surfaces step up in tone (background < surface < surfaceContainer). Glass cards use their own translucent tint on top of this via GlassPalette, not these surface colors directly. */
 private val FoldEchoDarkColors = darkColorScheme(
     primary = Color(0xFF9ED6FF),
@@ -237,6 +350,40 @@ private val LocalHaptics = compositionLocalOf<HapticsController?> { null }
 /** Mirrors Tunables.uiHapticsEnabled so controls can skip the tap without every caller checking it themselves. */
 private val LocalUiHapticsEnabled = compositionLocalOf { true }
 
+/**
+ * Feedback for switch flips, routed through the platform instead of our own
+ * Vibrator.
+ *
+ * HapticFeedbackConstants.TOGGLE_ON / TOGGLE_OFF (API 34) is what the OS maps
+ * onto the device's dedicated toggle haptic — on a Samsung that is their
+ * vibration HAL's own tuned toggle waveform, which is why it feels like the
+ * rest of the system and a raw VibrationEffect primitive does not. Compose's
+ * LocalHapticFeedback can't reach these (it only exposes LongPress and
+ * TextHandleMove), so this goes through the host View directly.
+ *
+ * performHapticFeedback returning false means the system or the user has touch
+ * feedback switched off, so there is deliberately no fallback in that case —
+ * only pre-34 devices, which have no such constant at all, drop back to
+ * HapticsController.
+ */
+@Composable
+private fun rememberToggleHaptic(): (Boolean) -> Unit {
+    val view = LocalView.current
+    val haptics = LocalHaptics.current
+    val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    return { on ->
+        if (uiHapticsEnabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                view.performHapticFeedback(
+                    if (on) HapticFeedbackConstants.TOGGLE_ON else HapticFeedbackConstants.TOGGLE_OFF
+                )
+            } else {
+                haptics?.toggle(on)
+            }
+        }
+    }
+}
+
 private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
 private fun inverseLerp(a: Float, b: Float, v: Float) = ((v - a) / (b - a)).coerceIn(0f, 1f)
 
@@ -254,9 +401,9 @@ private fun applySensitivity(t: Tunables, dial: Float) = t.copy(
 )
 
 private fun blurT(t: Tunables) = inverseLerp(15f, 65f, t.maxBlurPx)
-private fun applyBlur(t: Tunables, dial: Float): Tunables {
+private fun applyBlur(t: Tunables, dial: Float, rayTraced: Boolean): Tunables {
     val updated = t.copy(maxBlurPx = lerp(15f, 65f, dial))
-    return if (updated.foldShaderEnabled) {
+    return if (rayTraced) {
         updated.copy(
             maxBlurRadiusPx = lerp(20f, 80f, dial),
             blurPerMm = lerp(0.8f, 3.2f, dial)
@@ -267,9 +414,9 @@ private fun applyBlur(t: Tunables, dial: Float): Tunables {
 }
 
 private fun shadowT(t: Tunables) = inverseLerp(0.25f, 0.75f, t.maxDim)
-private fun applyShadow(t: Tunables, dial: Float): Tunables {
+private fun applyShadow(t: Tunables, dial: Float, rayTraced: Boolean): Tunables {
     val updated = t.copy(maxDim = lerp(0.25f, 0.75f, dial))
-    return if (updated.foldShaderEnabled) {
+    return if (rayTraced) {
         updated.copy(
             maxDarken = lerp(0.35f, 0.95f, dial),
             darkenPerMm = lerp(0.008f, 0.045f, dial)
@@ -279,13 +426,13 @@ private fun applyShadow(t: Tunables, dial: Float): Tunables {
     }
 }
 
-private fun depthT(t: Tunables) = if (t.foldShaderEnabled) {
+private fun depthT(t: Tunables, rayTraced: Boolean) = if (rayTraced) {
     inverseLerp(450f, 150f, t.viewDistanceMm)
 } else {
     inverseLerp(0.15f, 0.75f, t.perspectiveStrength)
 }
 
-private fun applyDepth(t: Tunables, dial: Float): Tunables = if (t.foldShaderEnabled) {
+private fun applyDepth(t: Tunables, dial: Float, rayTraced: Boolean): Tunables = if (rayTraced) {
     t.copy(viewDistanceMm = lerp(450f, 150f, dial))
 } else {
     t.copy(
@@ -303,6 +450,7 @@ private fun applyHapticStrength(t: Tunables, dial: Float) = t.copy(
 
 @Composable
 private fun ControlPanel(
+    scrollState: ScrollState,
     running: Boolean,
     effectActive: Boolean,
     deviationDeg: Float,
@@ -314,10 +462,17 @@ private fun ControlPanel(
     onTunablesChange: (Tunables) -> Unit,
     onResetTunables: () -> Unit
 ) {
+    // Ray-traced fold is AGSL, which is API 33. On 31/32 OverlayController
+    // silently runs the classic renderer no matter what this preference says,
+    // so the panel has to show *classic's* tunables there — otherwise the card
+    // offers sliders that cannot reach the renderer actually drawing.
+    val rayTraced = tunables.foldShaderEnabled &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
         DuoFlowWordmark()
@@ -426,11 +581,11 @@ private fun ControlPanel(
                 range = 0f..1f,
                 help = "How out-of-focus the tilted content gets, from a light haze to a heavy " +
                     "frost. Moves every blur-related parameter together."
-            ) { onTunablesChange(applyBlur(tunables, it)) }
+            ) { onTunablesChange(applyBlur(tunables, it, rayTraced)) }
 
             AdvancedSection {
                 TuningSlider(
-                    label = "Blur",
+                    label = "Peak blur radius",
                     readout = "${tunables.maxBlurPx.roundToInt()}px",
                     value = tunables.maxBlurPx,
                     range = 0f..80f,
@@ -439,7 +594,7 @@ private fun ControlPanel(
                     onEnabledChange = { onTunablesChange(tunables.copy(maxBlurPxEnabled = it)) }
                 ) { onTunablesChange(tunables.copy(maxBlurPx = it)) }
 
-                if (tunables.foldShaderEnabled) {
+                if (rayTraced) {
                     Spacer(Modifier.height(6.dp))
                     SectionHeader("Ray-traced fold")
 
@@ -475,7 +630,7 @@ private fun ControlPanel(
                 range = 0f..1f,
                 help = "How dark the tilted content gets, from barely dimmed to nearly black. " +
                     "Moves every darkening parameter together."
-            ) { onTunablesChange(applyShadow(tunables, it)) }
+            ) { onTunablesChange(applyShadow(tunables, it, rayTraced)) }
 
             AdvancedSection {
                 TuningSlider(
@@ -488,7 +643,7 @@ private fun ControlPanel(
                     onEnabledChange = { onTunablesChange(tunables.copy(maxDimEnabled = it)) }
                 ) { onTunablesChange(tunables.copy(maxDim = it)) }
 
-                if (tunables.foldShaderEnabled) {
+                if (rayTraced) {
                     Spacer(Modifier.height(6.dp))
                     SectionHeader("Ray-traced fold")
 
@@ -519,14 +674,14 @@ private fun ControlPanel(
         TuningGroup {
             TuningSlider(
                 label = "Depth",
-                readout = "${(depthT(tunables) * 100).roundToInt()}%",
-                value = depthT(tunables),
+                readout = "${(depthT(tunables, rayTraced) * 100).roundToInt()}%",
+                value = depthT(tunables, rayTraced),
                 range = 0f..1f,
                 help = "How much 3D depth the tilt reveals — flat and subtle, or a steep, dramatic recede."
-            ) { onTunablesChange(applyDepth(tunables, it)) }
+            ) { onTunablesChange(applyDepth(tunables, it, rayTraced)) }
 
             AdvancedSection {
-                if (tunables.foldShaderEnabled) {
+                if (rayTraced) {
                     TuningSlider(
                         label = "View distance",
                         readout = "${tunables.viewDistanceMm.roundToInt()}mm",
@@ -604,7 +759,7 @@ private fun ControlPanel(
 
             TuningToggle(
                 label = "Interface haptics",
-                help = "Light taps when you drag sliders or flip switches in this app. Doesn't affect the fold effect itself.",
+                help = "Taps when you drag sliders or flip switches in this app. Switches use the system's own toggle feedback. Doesn't affect the fold effect itself.",
                 checked = tunables.uiHapticsEnabled
             ) { onTunablesChange(tunables.copy(uiHapticsEnabled = it)) }
 
@@ -868,8 +1023,7 @@ private fun StatusCard(
     onRecalibrate: () -> Unit,
     onGrantOverlay: () -> Unit
 ) {
-    val haptics = LocalHaptics.current
-    val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    val toggleHaptic = rememberToggleHaptic()
     val (label, dot) = when {
         effectActive -> "Effect active" to MaterialTheme.colorScheme.primary
         running -> "Watching for tilt" to Color(0xFF4ADE80)
@@ -896,7 +1050,7 @@ private fun StatusCard(
                 Switch(
                     checked = running,
                     onCheckedChange = {
-                        if (uiHapticsEnabled) haptics?.interfaceTick()
+                        toggleHaptic(it)
                         onToggle()
                     },
                     colors = SwitchDefaults.colors(
@@ -983,6 +1137,7 @@ private fun TuningSlider(
 ) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    val toggleHaptic = rememberToggleHaptic()
     val contentAlpha = if (enabled) 1f else 0.4f
     Column(Modifier.padding(vertical = 8.dp)) {
         Row(
@@ -1010,7 +1165,7 @@ private fun TuningSlider(
                     Switch(
                         checked = enabled,
                         onCheckedChange = {
-                            if (uiHapticsEnabled) haptics?.interfaceTick()
+                            toggleHaptic(it)
                             onEnabledChange(it)
                         },
                         colors = SwitchDefaults.colors(
@@ -1042,8 +1197,7 @@ private fun TuningToggle(
     checked: Boolean,
     onChange: (Boolean) -> Unit
 ) {
-    val haptics = LocalHaptics.current
-    val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    val toggleHaptic = rememberToggleHaptic()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1060,7 +1214,7 @@ private fun TuningToggle(
         Switch(
             checked = checked,
             onCheckedChange = {
-                if (uiHapticsEnabled) haptics?.interfaceTick()
+                toggleHaptic(it)
                 onChange(it)
             },
             colors = SwitchDefaults.colors(

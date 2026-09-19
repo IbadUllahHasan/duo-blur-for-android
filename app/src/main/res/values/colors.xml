@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches FoldEchoLightColors.background in MainActivity, so the window
+         behind Compose is the same colour Compose is about to paint and there's
+         no flash of the wrong theme while the activity starts. -->
+    <color name="window_background">#FFF6F8FA</color>
+</resources>
