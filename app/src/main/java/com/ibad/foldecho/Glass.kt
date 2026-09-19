@@ -68,18 +68,25 @@ data class GlassPalette(
 /**
  * Dark glass over a near-black micro-dot matrix.
  *
- * Blur and lens swapped roles from an earlier version of this palette: blur
- * is now heavy enough to genuinely frost the card body (22dp, was 5dp) and
- * the lens is pulled in to a tight rim (9dp, was 18dp) instead of spreading
- * the bend across most of the card. That split — frosted body, sharp-edged
- * refraction — is what Apple's own material does; cutting blur to keep the
- * grid visible (the previous approach) fought the frosted-glass read instead.
- * `chromaticAberration` is on so the refraction rim visibly separates colour,
- * which is the whole reason the dot grid carries accent colours at all.
+ * `cardBackdropBlurRadius` and `cardTint` alpha are both diagnostic values
+ * right now, not final ones. The previous version of this palette (22dp
+ * blur, 0.30 tint) shipped untested against a real device and turned out
+ * to render every card as a flat, opaque rectangle — no visible dot-grid
+ * texture at all. The cause: a 22dp blur radius against this grid's 12dp
+ * dot pitch is larger than the pattern's own period, so it doesn't soften
+ * the dots, it averages them into a spatially near-uniform wash before
+ * `onDrawSurface`'s tint is even composited on top. 3dp keeps the blur
+ * diameter well under the 12dp pitch so individual dots survive as soft,
+ * distinct blobs; the tint is halved alongside it as a joint diagnostic
+ * step, since blur homogenization would make any tint on top look equally
+ * flat and a real device round-trip is expensive to spend confirming which
+ * one mattered. Once a screenshot confirms texture is visibly present
+ * again, both are expected to move back up toward a more frosted target —
+ * this is deliberately the conservative end of the range, not the goal.
  */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF14161C).copy(alpha = 0.30f),
-    cardBackdropBlurRadius = 22.dp,
+    cardTint = Color(0xFF14161C).copy(alpha = 0.15f),
+    cardBackdropBlurRadius = 3.dp,
     lensRefractionHeight = 9.dp,
     lensRefractionAmount = 16.dp,
     specularColor = Color.White,
@@ -91,14 +98,14 @@ val DarkGlassPalette = GlassPalette(
 )
 
 /**
- * Light glass over a pure-white micro-dot matrix. Same blur/lens split as
- * dark, scaled slightly down (18dp/8dp) because a bright backdrop needs less
- * help from blur to stay legible, and the specular is stronger (0.75 vs
- * dark's 0.55) to register at all against it.
+ * Light glass over a pure-white micro-dot matrix. Same diagnostic
+ * blur/tint reasoning as dark — see its doc comment — scaled down slightly
+ * further (2.5dp vs 3dp) since a bright backdrop needs even less blur to
+ * stay legible.
  */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.22f),
-    cardBackdropBlurRadius = 18.dp,
+    cardTint = Color.White.copy(alpha = 0.11f),
+    cardBackdropBlurRadius = 2.5.dp,
     lensRefractionHeight = 8.dp,
     lensRefractionAmount = 14.dp,
     specularColor = Color.White,
