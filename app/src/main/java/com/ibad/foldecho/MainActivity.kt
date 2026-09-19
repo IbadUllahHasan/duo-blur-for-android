@@ -283,6 +283,28 @@ private fun GlassScene(
                 )
                 return available
             }
+
+            /**
+             * A fling that runs *into* an end arrives here with velocity left
+             * over, having never produced an out-of-bounds drag for
+             * onPostScroll to pick up. Without this, flinging at the list ends
+             * would be the one gesture with no overscroll feedback at all.
+             */
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (available.y == 0f) return Velocity.Zero
+                overscroll.snapTo(
+                    (available.y * FLING_BOUNCE_SECONDS)
+                        .coerceIn(-maxOverscrollPx, maxOverscrollPx)
+                )
+                overscroll.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    )
+                )
+                return available
+            }
         }
     }
 
@@ -303,6 +325,9 @@ private fun GlassScene(
 
 /** Fraction of an out-of-bounds drag that becomes rubber-band travel. */
 private const val OVERSCROLL_RESISTANCE = 0.4f
+
+/** Leftover fling velocity (px/s) is worth this many seconds of bounce travel, then clamped. */
+private const val FLING_BOUNCE_SECONDS = 0.06f
 
 /** Dark palette — surfaces step up in tone (background < surface < surfaceContainer). Glass cards use their own translucent tint on top of this via GlassPalette, not these surface colors directly. */
 private val FoldEchoDarkColors = darkColorScheme(
