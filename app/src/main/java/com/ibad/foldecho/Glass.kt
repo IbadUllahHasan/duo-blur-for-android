@@ -4,13 +4,11 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -29,6 +27,7 @@ import com.kashif_e.backdrop.effects.lens
 import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.highlight.HighlightStyle
+import com.kashif_e.backdrop.shadow.Shadow
 
 /**
  * Corner radius is context-aware, not one flat constant: bigger surfaces read
@@ -46,62 +45,68 @@ object GlassRadii {
  * translucency/tint pair that reads correctly on a dark backdrop washes out
  * or muddies on a light one. Named `cardBackdropBlurRadius`, not "blur",
  * so it never collides with the Blur effect group's own parameters.
+ *
+ * No border colour: a uniform stroke around the whole shape is what reads as
+ * a flat sticker outline rather than glass. The rim is carried entirely by
+ * the highlight now — see [GlassSurface].
  */
 data class GlassPalette(
     val cardTint: Color,
     val cardBackdropBlurRadius: Dp,
     val lensRefractionHeight: Dp,
     val lensRefractionAmount: Dp,
-    val borderColor: Color,
     val specularColor: Color,
     val specularAlpha: Float,
     val highlightWidth: Dp,
-    val dotColor: Color
+    /** Base fill and dot colour of [DotGridBackground] — independent of MaterialTheme's background, per an exact design spec. */
+    val dotGridBackground: Color,
+    val dotColor: Color,
+    /** Colour(s) of every 4th dot, cycled in order. One colour for a single accent; several to alternate between them. */
+    val dotAccentColors: List<Color>
 )
 
 /**
- * Dark glass: a dark pane over a dark field of light dots.
+ * Dark glass over a near-black micro-dot matrix.
  *
- * The tint is kept well back (0.30) and the blur deliberately small. Both are
- * down sharply from the values this used to carry, because the point of the
- * glass now is that you can *see the dot grid bend* through it — a heavy blur
- * dissolves the dots into a flat wash and there is nothing left to refract.
- * The lens does the work instead; the blur only takes the hard edge off.
+ * Blur and lens swapped roles from an earlier version of this palette: blur
+ * is now heavy enough to genuinely frost the card body (22dp, was 5dp) and
+ * the lens is pulled in to a tight rim (9dp, was 18dp) instead of spreading
+ * the bend across most of the card. That split — frosted body, sharp-edged
+ * refraction — is what Apple's own material does; cutting blur to keep the
+ * grid visible (the previous approach) fought the frosted-glass read instead.
+ * `chromaticAberration` is on so the refraction rim visibly separates colour,
+ * which is the whole reason the dot grid carries accent colours at all.
  */
 val DarkGlassPalette = GlassPalette(
     cardTint = Color(0xFF14161C).copy(alpha = 0.30f),
-    cardBackdropBlurRadius = 5.dp,
-    lensRefractionHeight = 18.dp,
-    lensRefractionAmount = 32.dp,
-    borderColor = Color.White.copy(alpha = 0.14f),
+    cardBackdropBlurRadius = 22.dp,
+    lensRefractionHeight = 9.dp,
+    lensRefractionAmount = 16.dp,
     specularColor = Color.White,
     specularAlpha = 0.55f,
     highlightWidth = 0.75.dp,
-    // Light dots on the dark background — the inverse of the light palette's
-    // pairing, not the same colour at a different opacity.
-    dotColor = Color(0xFFDCE4F5).copy(alpha = 0.30f)
+    dotGridBackground = Color(0xFF090A0F),
+    dotColor = Color(0xFFE2E8F0).copy(alpha = 0.75f),
+    dotAccentColors = listOf(Color(0xFF38BDF8), Color(0xFFF59E0B))
 )
 
 /**
- * Light glass: a thinner, whiter pane over a light field of dark dots.
- *
- * Tint sits back further still (0.22 vs dark's 0.30) and the blur is tighter,
- * because a bright backdrop needs less help to stay legible — and the specular
- * has to be far stronger (0.75 vs 0.55) to register against it at all. Those
- * are the axes that have to differ for the two themes to read as different
- * materials rather than one palette with the lights turned up.
+ * Light glass over a pure-white micro-dot matrix. Same blur/lens split as
+ * dark, scaled slightly down (18dp/8dp) because a bright backdrop needs less
+ * help from blur to stay legible, and the specular is stronger (0.75 vs
+ * dark's 0.55) to register at all against it.
  */
 val LightGlassPalette = GlassPalette(
     cardTint = Color.White.copy(alpha = 0.22f),
-    cardBackdropBlurRadius = 4.dp,
-    lensRefractionHeight = 16.dp,
-    lensRefractionAmount = 28.dp,
-    borderColor = Color.White.copy(alpha = 0.70f),
+    cardBackdropBlurRadius = 18.dp,
+    lensRefractionHeight = 8.dp,
+    lensRefractionAmount = 14.dp,
     specularColor = Color.White,
     specularAlpha = 0.75f,
     highlightWidth = 0.75.dp,
-    // Dark dots on the light background.
-    dotColor = Color(0xFF14181F).copy(alpha = 0.28f)
+    dotGridBackground = Color(0xFFFFFFFF),
+    dotColor = Color(0xFF0F172A),
+    dotAccentColors = listOf(Color(0xFFEF4444))
 )
 
 val LocalGlassPalette = compositionLocalOf { DarkGlassPalette }
@@ -131,7 +136,9 @@ private const val HIGHLIGHT_ANGLE_DEG = 45f
  *
  * Effects run in the order the library documents as the iOS-style stack:
  * saturate, soften, then bend. `lens` is what actually distorts the dot grid;
- * `blur` alone would only fog it.
+ * `blur` alone would only fog it. The shadow is what separates a card from
+ * whatever sits below it — without it, glass reads as a flat tinted layer
+ * rather than something elevated.
  */
 @Composable
 fun GlassSurface(
@@ -152,7 +159,12 @@ fun GlassSurface(
                     blur(palette.cardBackdropBlurRadius.toPx())
                     lens(
                         refractionHeight = palette.lensRefractionHeight.toPx(),
-                        refractionAmount = palette.lensRefractionAmount.toPx()
+                        refractionAmount = palette.lensRefractionAmount.toPx(),
+                        // The accent dots exist specifically to make this
+                        // visible at the refraction rim. Not verified on a
+                        // real scrolling frame — if it reads as janky on
+                        // device, this is the first thing to drop.
+                        chromaticAberration = true
                     )
                 },
                 // Static: a fixed angle, and colour/alpha that vary only by
@@ -167,6 +179,9 @@ fun GlassSurface(
                         )
                     )
                 },
+                shadow = {
+                    Shadow(radius = 12.dp, color = Color.Black.copy(alpha = 0.15f))
+                },
                 // How the library wants glass tinted: over the effects, under
                 // the children, so text stays at full contrast.
                 onDrawSurface = { drawRect(palette.cardTint) }
@@ -178,18 +193,16 @@ fun GlassSurface(
             .background(palette.cardTint)
     }
 
-    Box(
-        glass
-            .then(modifier)
-            .border(1.dp, palette.borderColor, shape)
-    ) {
+    Box(glass.then(modifier)) {
         content()
     }
 }
 
 /**
- * The backdrop every glass card samples: a static field of small dots over the
- * theme background.
+ * The backdrop every glass card samples: a high-density micro-dot matrix —
+ * 2dp dots on a 12dp grid — over its own exact background colour, with every
+ * 4th node in an accent colour so the refraction rim has something with real
+ * chroma to visibly separate as cards pass over it.
  *
  * It is deliberately motionless — no drift animation, nothing driven by the
  * tilt sensor. The glass effect is demonstrated by the cards moving over this
@@ -201,20 +214,20 @@ fun GlassSurface(
  * container, so scrolling moves the cards across it rather than dragging it
  * along with them.
  *
- * This paints its own opaque base rather than letting the Surface behind it
- * show through: the backdrop layer captures only what this composable draws,
- * and a transparent capture would leave the glass sampling nothing.
+ * This paints its own opaque base — [GlassPalette.dotGridBackground], not
+ * MaterialTheme's background — rather than letting the Surface behind it show
+ * through: the backdrop layer captures only what this composable draws, and a
+ * transparent capture would leave the glass sampling nothing.
  */
 @Composable
 fun DotGridBackground(modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
-    val baseColor = MaterialTheme.colorScheme.background
 
     Box(
         modifier
             .fillMaxSize()
             .drawBehind {
-                drawRect(baseColor)
+                drawRect(palette.dotGridBackground)
 
                 val step = DOT_SPACING.toPx()
                 val radius = DOT_RADIUS.toPx()
@@ -226,22 +239,37 @@ fun DotGridBackground(modifier: Modifier = Modifier) {
                 val originX = step / 2f
                 val originY = step / 2f
 
+                // A running count over every node drawn, in the same order as
+                // the loop below: every 4th one is an accent, and successive
+                // accents cycle through dotAccentColors — the "alternating"
+                // part when there's more than one.
+                var nodeIndex = 0
+
                 for (column in 0..columns) {
                     val x = originX + column * step
                     for (row in 0..rows) {
+                        val isAccent = nodeIndex % DOT_ACCENT_EVERY == 0
+                        val color = if (isAccent) {
+                            val accents = palette.dotAccentColors
+                            accents[(nodeIndex / DOT_ACCENT_EVERY) % accents.size]
+                        } else {
+                            palette.dotColor
+                        }
                         drawCircle(
-                            color = palette.dotColor,
+                            color = color,
                             radius = radius,
                             center = Offset(x, originY + row * step)
                         )
+                        nodeIndex++
                     }
                 }
             }
     )
 }
 
-private val DOT_SPACING = 22.dp
-private val DOT_RADIUS = 1.6.dp
+private val DOT_SPACING = 12.dp
+private val DOT_RADIUS = 2.dp
+private const val DOT_ACCENT_EVERY = 4
 
 /** A spring-based ~0.95x press-down, for elements that build their own click handling (so they can share one [InteractionSource] between the scale and the actual click). */
 @Composable
