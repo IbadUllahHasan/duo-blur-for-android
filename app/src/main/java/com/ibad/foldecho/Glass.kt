@@ -15,27 +15,31 @@ import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeDefaults
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import com.kashif_e.backdrop.Backdrop
+import com.kashif_e.backdrop.drawBackdrop
+import com.kashif_e.backdrop.effects.blur
+import com.kashif_e.backdrop.effects.lens
+import com.kashif_e.backdrop.effects.vibrancy
+import com.kashif_e.backdrop.highlight.Highlight
+import com.kashif_e.backdrop.highlight.HighlightStyle
+import kotlin.math.atan2
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Corner radius is context-aware, not one flat constant: bigger surfaces read
@@ -57,67 +61,91 @@ object GlassRadii {
 data class GlassPalette(
     val cardTint: Color,
     val cardBackdropBlurRadius: Dp,
-    val noiseFactor: Float,
+    val lensRefractionHeight: Dp,
+    val lensRefractionAmount: Dp,
     val borderColor: Color,
     val specularColor: Color,
     val specularAlpha: Float,
-    val ambientColors: List<Color>
+    val highlightWidth: Dp,
+    val dotColor: Color
 )
 
 /**
- * Dark glass: a dark, fairly *opaque* pane. On a dark backdrop there is little
- * luminance behind the card to work with, so the tint has to carry the surface
- * itself, the blur goes wide to kill any remaining detail, and the specular is
- * kept faint — a bright highlight on dark glass reads as a smear, not a sheen.
+ * Dark glass: a dark pane over a dark field of light dots.
+ *
+ * The tint is kept well back (0.30) and the blur deliberately small. Both are
+ * down sharply from the values this used to carry, because the point of the
+ * glass now is that you can *see the dot grid bend* through it — a heavy blur
+ * dissolves the dots into a flat wash and there is nothing left to refract.
+ * The lens does the work instead; the blur only takes the hard edge off.
  */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF1B1C22).copy(alpha = 0.62f),
-    cardBackdropBlurRadius = 32.dp,
-    noiseFactor = 0.12f,
-    borderColor = Color.White.copy(alpha = 0.12f),
+    cardTint = Color(0xFF14161C).copy(alpha = 0.30f),
+    cardBackdropBlurRadius = 5.dp,
+    lensRefractionHeight = 18.dp,
+    lensRefractionAmount = 32.dp,
+    borderColor = Color.White.copy(alpha = 0.14f),
     specularColor = Color.White,
-    specularAlpha = 0.10f,
-    ambientColors = listOf(
-        Color(0xFF3D5AFE),
-        Color(0xFF7C4DFF),
-        Color(0xFF00BFA5),
-        Color(0xFFFF6E40)
-    )
+    specularAlpha = 0.55f,
+    highlightWidth = 0.75.dp,
+    // Light dots on the dark background — the inverse of the light palette's
+    // pairing, not the same colour at a different opacity.
+    dotColor = Color(0xFFDCE4F5).copy(alpha = 0.30f)
 )
 
 /**
- * Light glass: a *thinner*, whiter pane. The backdrop is already bright, so the
- * tint can stay well back (0.40 vs dark's 0.62) and the blur can stay tighter
- * without the card turning into a grey slab — and the specular has to be much
- * stronger (0.45 vs 0.10) to be visible at all against a light background.
- * These are the three axes that have to differ for the two themes to read as
- * different materials rather than one palette with the lights turned up.
+ * Light glass: a thinner, whiter pane over a light field of dark dots.
+ *
+ * Tint sits back further still (0.22 vs dark's 0.30) and the blur is tighter,
+ * because a bright backdrop needs less help to stay legible — and the specular
+ * has to be far stronger (0.75 vs 0.55) to register against it at all. Those
+ * are the axes that have to differ for the two themes to read as different
+ * materials rather than one palette with the lights turned up.
  */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.40f),
-    cardBackdropBlurRadius = 20.dp,
-    noiseFactor = 0.04f,
-    borderColor = Color.White.copy(alpha = 0.75f),
+    cardTint = Color.White.copy(alpha = 0.22f),
+    cardBackdropBlurRadius = 4.dp,
+    lensRefractionHeight = 16.dp,
+    lensRefractionAmount = 28.dp,
+    borderColor = Color.White.copy(alpha = 0.70f),
     specularColor = Color.White,
-    specularAlpha = 0.45f,
-    ambientColors = listOf(
-        Color(0xFF90CAF9),
-        Color(0xFFCE93D8),
-        Color(0xFFA5D6A7),
-        Color(0xFFFFCC80)
-    )
+    specularAlpha = 0.75f,
+    highlightWidth = 0.75.dp,
+    // Dark dots on the light background.
+    dotColor = Color(0xFF14181F).copy(alpha = 0.28f)
 )
 
 val LocalGlassPalette = compositionLocalOf { DarkGlassPalette }
 
-/** Shared across the whole screen: one blur source (the ambient background), many blurred children (each glass card). */
-val LocalHazeState = compositionLocalOf<HazeState?> { null }
+/**
+ * Shared across the whole screen: one captured backdrop layer (the dot grid),
+ * many glass children sampling it. Held as a composition local so every card
+ * samples the same capture — see the note on GlassScene about why this must be
+ * remembered once at the scaffold rather than created per card.
+ */
+val LocalBackdrop = compositionLocalOf<Backdrop?> { null }
+
+/** 45° is the library's own rest angle for HighlightStyle.Default. */
+private const val REST_LIGHT_ANGLE_DEG = 45f
+
+/** Tilt (in degrees) that counts as a full-scale lean for the highlight. */
+private const val TILT_FULL_SCALE_DEG = 45f
+
+/** How far a full-scale lean pulls the light away from its rest direction. */
+private const val TILT_LIGHT_GAIN = 0.9f
+
+// Not `const`: a const initializer has to be a compile-time constant, and
+// `.toFloat()` is a call.
+private val DEG_TO_RAD = (PI / 180.0).toFloat()
 
 /**
- * The reusable "pane of glass": real backdrop blur of whatever's behind it
- * (via Haze), a faint border to catch the edge like real glass would, and a
- * tilt-reactive specular highlight. [content] still owns its own padding —
- * this only draws the surface itself.
+ * The reusable "pane of glass": real backdrop refraction of whatever is behind
+ * it, plus a tilt-reactive specular highlight. [content] still owns its own
+ * padding — this only draws the surface itself.
+ *
+ * Effects run in the order the library documents as the iOS-style stack:
+ * saturate, soften, then bend. `lens` is what actually distorts the dot grid;
+ * `blur` alone would only fog it.
  */
 @Composable
 fun GlassSurface(
@@ -125,121 +153,159 @@ fun GlassSurface(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    val hazeState = LocalHazeState.current
+    val backdrop = LocalBackdrop.current
     val palette = LocalGlassPalette.current
-    Box(
-        modifier
-            .clip(shape)
-            .let { base ->
-                if (hazeState != null) {
-                    base.hazeChild(
-                        state = hazeState,
-                        shape = shape,
-                        // No backgroundColor here on purpose: HazeDefaults.style()
-                        // only uses it to derive `tint` when tint is left out, so
-                        // passing both silently discarded it.
-                        style = HazeDefaults.style(
-                            tint = palette.cardTint,
-                            blurRadius = palette.cardBackdropBlurRadius,
-                            noiseFactor = palette.noiseFactor
+    val highlightAngle = rememberHighlightAngle()
+
+    val glass = if (backdrop != null) {
+        Modifier
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                effects = {
+                    vibrancy()
+                    blur(palette.cardBackdropBlurRadius.toPx())
+                    lens(
+                        refractionHeight = palette.lensRefractionHeight.toPx(),
+                        refractionAmount = palette.lensRefractionAmount.toPx()
+                    )
+                },
+                // Read inside the lambda on purpose: the library re-evaluates
+                // these per frame, so the angle tracks the sensor without
+                // rebuilding the modifier chain on every tilt reading.
+                highlight = {
+                    Highlight(
+                        width = palette.highlightWidth,
+                        alpha = palette.specularAlpha,
+                        style = HighlightStyle.Default(
+                            color = palette.specularColor,
+                            angle = highlightAngle
                         )
                     )
-                } else {
-                    base.background(palette.cardTint)
-                }
-            }
+                },
+                // How the library wants glass tinted: over the effects, under
+                // the children, so text stays at full contrast.
+                onDrawSurface = { drawRect(palette.cardTint) }
+            )
+            .clip(shape)
+    } else {
+        Modifier
+            .clip(shape)
+            .background(palette.cardTint)
+    }
+
+    Box(
+        glass
+            .then(modifier)
             .border(1.dp, palette.borderColor, shape)
     ) {
-        SpecularOverlay(Modifier.matchParentSize())
         content()
     }
 }
 
 /**
- * A soft light gradient that shifts slightly with the same tilt reading that
- * drives the fold effect (FoldEchoState.tiltUpDeg/tiltRightDeg), so glass
- * surfaces read as reactive rather than a static image. Movement is small
- * and spring-eased — meant to be felt more than consciously noticed.
+ * Maps the same tilt reading that drives the fold effect
+ * (FoldEchoState.tiltUpDeg/tiltRightDeg) onto the light-source angle of every
+ * card's highlight, so leaning the phone swings the sheen around the glass.
+ *
+ * The lean is sprung as a *vector* and only then converted to an angle.
+ * Springing the angle itself would take the long way round whenever it wrapped
+ * past ±180°, sending the highlight spinning all the way around the card on
+ * what was physically a tiny movement. Adding a fixed rest vector at
+ * [REST_LIGHT_ANGLE_DEG] also keeps a still phone stable: without it, a lean of
+ * almost exactly zero leaves the angle at the mercy of sensor noise.
  */
 @Composable
-private fun SpecularOverlay(modifier: Modifier = Modifier) {
-    val palette = LocalGlassPalette.current
+private fun rememberHighlightAngle(): Float {
     val tiltUp by FoldEchoState.tiltUpDeg.collectAsState()
     val tiltRight by FoldEchoState.tiltRightDeg.collectAsState()
 
-    val fracX by animateFloatAsState(
-        targetValue = (tiltRight / 45f).coerceIn(-1f, 1f) * 0.18f,
+    val leanX by animateFloatAsState(
+        targetValue = (tiltRight / TILT_FULL_SCALE_DEG).coerceIn(-1f, 1f),
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "specularX"
+        label = "highlightLeanX"
     )
-    val fracY by animateFloatAsState(
-        targetValue = (-tiltUp / 45f).coerceIn(-1f, 1f) * 0.18f,
+    val leanY by animateFloatAsState(
+        targetValue = (-tiltUp / TILT_FULL_SCALE_DEG).coerceIn(-1f, 1f),
         animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "specularY"
+        label = "highlightLeanY"
     )
 
-    Box(
-        modifier.drawWithCache {
-            val brush = Brush.radialGradient(
-                colors = listOf(palette.specularColor.copy(alpha = palette.specularAlpha), Color.Transparent),
-                center = Offset(size.width * (0.5f + fracX), size.height * (0.35f + fracY)),
-                radius = size.maxDimension * 0.7f
-            )
-            onDrawBehind { drawRect(brush) }
-        }
-    )
+    val restRadians = REST_LIGHT_ANGLE_DEG * DEG_TO_RAD
+    val x = cos(restRadians) + leanX * TILT_LIGHT_GAIN
+    val y = sin(restRadians) + leanY * TILT_LIGHT_GAIN
+    return atan2(y, x) / DEG_TO_RAD
 }
 
 /**
- * Slow, continuous drift behind the whole screen so the backdrop blur on
- * glass cards always has visible motion to blur, not just when the phone is
- * tilted. Independent of the tilt sensor entirely — this loops forever.
+ * The backdrop every glass card samples: a field of small dots over the theme
+ * background, drifting continuously so there is always motion for the glass to
+ * refract even when the phone is perfectly still.
+ *
+ * The drift runs 0..1 over exactly one cell and restarts, so the field wraps
+ * seamlessly and can loop forever with no visible jump. A row and column of
+ * dots beyond each edge cover what the offset pulls in.
+ *
+ * This paints its own opaque background rather than letting the Surface behind
+ * it show through: the backdrop layer captures only what this composable
+ * draws, and a transparent capture would leave the glass sampling nothing.
  */
 @Composable
-fun AmbientBackground(modifier: Modifier = Modifier) {
+fun DotGridBackground(modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
-    val transition = rememberInfiniteTransition(label = "ambient")
-    val shapes = palette.ambientColors.mapIndexed { index, color ->
-        val period = 14_000 + index * 3_000
-        val dx by transition.animateFloat(
-            initialValue = -1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "ambientDx$index"
-        )
-        val dy by transition.animateFloat(
-            initialValue = -1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period + 2_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "ambientDy$index"
-        )
-        Triple(color, dx, dy)
-    }
+    val baseColor = MaterialTheme.colorScheme.background
+    val transition = rememberInfiniteTransition(label = "dotGrid")
 
-    Box(modifier.fillMaxSize()) {
-        shapes.forEachIndexed { index, (color, dx, dy) ->
-            val baseX = if (index % 2 == 0) 0.15f else 0.75f
-            val baseY = if (index < 2) 0.2f else 0.75f
-            Box(
-                Modifier
-                    .size(220.dp)
-                    .offset(
-                        x = (baseX * 300 + dx * 60).dp,
-                        y = (baseY * 500 + dy * 60).dp
-                    )
-                    .clip(CircleShape)
-                    .background(color.copy(alpha = 0.35f))
-                    .blur(90.dp)
-            )
-        }
-    }
+    val driftX by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(19_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dotDriftX"
+    )
+    val driftY by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            // Deliberately not a multiple of the X period, so the field never
+            // settles into an obvious repeating diagonal.
+            animation = tween(27_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dotDriftY"
+    )
+
+    Box(
+        modifier
+            .fillMaxSize()
+            .drawBehind {
+                drawRect(baseColor)
+
+                val step = DOT_SPACING.toPx()
+                val radius = DOT_RADIUS.toPx()
+                val offsetX = driftX * step
+                val offsetY = driftY * step
+                val columns = (size.width / step).toInt() + 2
+                val rows = (size.height / step).toInt() + 2
+
+                for (column in 0..columns) {
+                    val x = column * step - step + offsetX
+                    for (row in 0..rows) {
+                        drawCircle(
+                            color = palette.dotColor,
+                            radius = radius,
+                            center = Offset(x, row * step - step + offsetY)
+                        )
+                    }
+                }
+            }
+    )
 }
+
+private val DOT_SPACING = 22.dp
+private val DOT_RADIUS = 1.6.dp
 
 /** A spring-based ~0.95x press-down, for elements that build their own click handling (so they can share one [InteractionSource] between the scale and the actual click). */
 @Composable

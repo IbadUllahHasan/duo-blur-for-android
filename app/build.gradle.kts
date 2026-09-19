@@ -88,21 +88,12 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.dynamicanimation:dynamicanimation:1.0.0")
-    // Originally pinned to 0.7.3 (not the latest release) because it was the
-    // last version published against this project's then-toolchain
-    // (kotlin-stdlib 1.9.24, compose-ui 1.6.7) — newer Haze releases moved to
-    // Compose Multiplatform coordinates built with Kotlin 2.x. The Kotlin 2.x /
-    // compose-bom 2025.12.01 migration below (for the `backdrop` dependency
-    // just under this one) removes the reason for that pin: 0.7.3 is still
-    // declared here, untouched, so a build failure lands squarely on whichever
-    // change actually caused it rather than on a pin bumped at the same time
-    // for a different reason. If CI turns up a Haze/Compose-UI incompatibility
-    // now that both are on Kotlin 2.x's classpath, bumping Haze off 0.7.3 is
-    // the next thing to try — not done here pre-emptively.
-    implementation("dev.chrisbanes.haze:haze:0.7.3")
-
     // KMP Liquid Glass (github.com/Kashif-E/KMPLiquidGlass), published to Maven
     // Central as `backdrop`. Only version on Central as of this writing.
+    //
+    // Sole provider of the card glass since Haze was removed: Haze's
+    // dev.chrisbanes.haze:haze:0.7.3 used to draw the same card backgrounds and
+    // is gone rather than left sitting alongside this doing the same job twice.
     //
     // This is *why* the toolchain above was bumped: 0.0.1-alpha02's published
     // Gradle module metadata declares kotlin-stdlib >= 2.3.0 and

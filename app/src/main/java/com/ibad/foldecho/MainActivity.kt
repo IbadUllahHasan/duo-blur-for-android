@@ -93,8 +93,8 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
+import com.kashif_e.backdrop.backdrops.layerBackdrop
+import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -147,16 +147,14 @@ class MainActivity : ComponentActivity() {
                 val running by FoldEchoState.running.collectAsState()
                 val effectActive by FoldEchoState.effectActive.collectAsState()
                 val deviation by FoldEchoState.deviationDeg.collectAsState()
-                val hazeState = remember { HazeState() }
 
                 CompositionLocalProvider(
                     LocalHaptics provides haptics,
                     LocalUiHapticsEnabled provides tunables.uiHapticsEnabled,
-                    LocalGlassPalette provides if (darkTheme) DarkGlassPalette else LightGlassPalette,
-                    LocalHazeState provides hazeState
+                    LocalGlassPalette provides if (darkTheme) DarkGlassPalette else LightGlassPalette
                 ) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        GlassScene(hazeState = hazeState) { scrollState ->
+                        GlassScene { scrollState ->
                             ControlPanel(
                                 scrollState = scrollState,
                                 running = running,
@@ -238,39 +236,35 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * Hosts the Haze blur source *and* the scrolling content in one Box, and
- * renders overscroll as a translation of that whole Box instead of letting the
- * scroll container render its own stretch.
+ * Hosts the backdrop source (the dot grid) and the scrolling content in one
+ * Box, and renders overscroll as a translation of that whole Box instead of
+ * letting the scroll container render its own stretch.
  *
- * This is the fix for the "ghost layer" behind cards at the scroll bounds.
- * Haze does not draw a card's backdrop inside the card: AndroidHazeNode (the
- * node attached to the *background*) records the background into a RenderNode,
- * clips every registered hazeChild's rect out of it, and then draws a blurred
- * copy of the background back into that rect. Every one of those rects comes
- * from HazeArea.positionOnScreen, which HazeChildNode writes only in
- * onPlaced() — layout time. Compose's default stretch overscroll, meanwhile,
- * is a draw-time RenderEffect on the *scroller's* layer, and draw-time effects
- * never re-run layout. So the moment the stretch began, the card's border,
- * text and specular stretched away while its backdrop — and the hole punched
- * in the background for it — stayed behind at the un-stretched position. The
- * exposed punch-out is what read as an extra layer.
+ * The original reason for this was Haze-specific and no longer applies: Haze
+ * drew each card's backdrop in the *background's* layer from layout-time
+ * coordinates, so the draw-time overscroll stretch pulled the card away from
+ * its own backdrop and exposed the punched-out rectangle as a "ghost" layer.
+ * The backdrop library doesn't work that way — LayerBackdrop draws the sampled
+ * layer inside the card's own draw scope, so card and backdrop deform together
+ * no matter what transforms the scroller applies, and that particular bug
+ * can't recur.
  *
- * So the cause was the Haze backdrop, not clipping: two transforms in two
- * different layers, only one of which Haze knows about. Putting the source and
- * the cards under a single translated parent means their *relative* geometry —
- * all Haze actually uses — never changes, so the backdrop stays welded to its
- * card. Overscroll still happens; it just happens once, in the right place.
+ * The single shared translation is kept anyway. It is what makes the dot grid
+ * rubber-band *with* the cards rather than sitting still behind them, and it
+ * is the behaviour that was verified on-device; swapping it back to the stock
+ * stretch would be an unforced change to something already known to work.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun GlassScene(
-    hazeState: HazeState,
-    content: @Composable (ScrollState) -> Unit
-) {
+private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
     val overscroll = remember { Animatable(0f) }
     val maxOverscrollPx = with(LocalDensity.current) { 56.dp.toPx() }
+    // One backdrop for the whole screen, remembered here at the scaffold and
+    // handed down: every card samples this same captured layer. Creating one
+    // per card would discard the capture on each recomposition.
+    val backdrop = rememberLayerBackdrop()
 
     val rubberBand = remember(scope, overscroll, maxOverscrollPx) {
         object : NestedScrollConnection {
@@ -345,10 +339,13 @@ private fun GlassScene(
             .nestedScroll(rubberBand)
             .graphicsLayer { translationY = overscroll.value }
     ) {
-        AmbientBackground(Modifier.fillMaxSize().haze(state = hazeState))
-        // The scroll container must not also run a stretch of its own — that
-        // second, Haze-invisible transform is exactly what this replaces.
-        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+        DotGridBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
+        // The scroll container must not also run a stretch of its own, or the
+        // scene would be transformed twice over.
+        CompositionLocalProvider(
+            LocalBackdrop provides backdrop,
+            LocalOverscrollConfiguration provides null
+        ) {
             content(scrollState)
         }
     }
@@ -902,7 +899,7 @@ private fun ControlPanel(
     }
 }
 
-/** The glass shell every tuning section shares — real backdrop blur of the ambient background via Haze, not a flat translucent color. */
+/** The glass shell every tuning section shares — real refraction of the dot grid behind it, not a flat translucent color. */
 @Composable
 private fun TuningGroup(content: @Composable () -> Unit) {
     GlassSurface(shape = RoundedCornerShape(GlassRadii.card)) {
