@@ -121,6 +121,8 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         if (abs(deviationDeg - FoldEchoState.deviationDeg.value) > DEVIATION_REPORT_STEP) {
             FoldEchoState.deviationDeg.value = deviationDeg
         }
+        FoldEchoState.tiltUpDeg.value = tiltUpDeg
+        FoldEchoState.tiltRightDeg.value = tiltRightDeg
 
         if (suppressedUntilNeutral) {
             if (deviationDeg < current.releaseDeg) suppressedUntilNeutral = false

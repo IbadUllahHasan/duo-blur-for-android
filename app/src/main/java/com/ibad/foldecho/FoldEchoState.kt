@@ -12,9 +12,15 @@ object FoldEchoState {
     val effectActive = MutableStateFlow(false)
     val deviationDeg = MutableStateFlow(0f)
 
+    /** Signed tilt components, mirrored from the same sensor reading that drives the fold effect — for UI-only cosmetics (e.g. a specular highlight) that want direction, not just magnitude. */
+    val tiltUpDeg = MutableStateFlow(0f)
+    val tiltRightDeg = MutableStateFlow(0f)
+
     fun reset() {
         running.value = false
         effectActive.value = false
         deviationDeg.value = 0f
+        tiltUpDeg.value = 0f
+        tiltRightDeg.value = 0f
     }
 }
