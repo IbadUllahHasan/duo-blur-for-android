@@ -36,6 +36,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
     private val main = Handler(Looper.getMainLooper())
 
     private lateinit var overlay: OverlayController
+    private lateinit var haptics: HapticsController
     private var projection: MediaProjection? = null
     private var capture: CaptureSession? = null
     private var tiltTracker: TiltTracker? = null
@@ -54,6 +55,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
     override fun onCreate() {
         super.onCreate()
         overlay = OverlayController(this)
+        haptics = HapticsController(this)
         tunables = FoldEchoSettings.load(this)
         FoldEchoSettings.prefs(this).registerOnSharedPreferenceChangeListener(tunablesChanged)
     }
@@ -131,7 +133,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
             // A touch-blocking overlay that never lifts would strand the user,
             // so give up on this gesture and wait for a return to neutral.
             suppressedUntilNeutral = true
-            endGesture()
+            endGesture(firedByTimeout = true)
             return
         }
 
@@ -159,6 +161,11 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         frameInFlight = true
         FoldEchoState.effectActive.value = true
 
+        val current = tunables
+        if (current.blurHapticsEnabled && current.blurHapticsEngageEnabled) {
+            haptics.engage(current.blurHapticsEngageStrength)
+        }
+
         session.requestFrame { frame ->
             frameInFlight = false
             if (frame == null) {
@@ -171,10 +178,18 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         }
     }
 
-    private fun endGesture() {
+    private fun endGesture(firedByTimeout: Boolean = false) {
         active = false
         FoldEchoState.effectActive.value = false
         main.post { overlay.hide() }
+
+        val current = tunables
+        if (!current.blurHapticsEnabled) return
+        if (firedByTimeout) {
+            if (current.blurHapticsTimeoutEnabled) haptics.timeoutAlert(current.blurHapticsTimeoutStrength)
+        } else if (current.blurHapticsReleaseEnabled) {
+            haptics.release(current.blurHapticsReleaseStrength)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

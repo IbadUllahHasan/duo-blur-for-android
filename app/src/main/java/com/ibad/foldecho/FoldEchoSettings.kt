@@ -67,7 +67,19 @@ data class Tunables(
     val maxDarkenEnabled: Boolean = true,
 
     /** Flips tilt-to-lean direction. The "correct" sign depends on the device's sensor axis convention, so this is a runtime toggle rather than a code edit. */
-    val flipTiltDirection: Boolean = false
+    val flipTiltDirection: Boolean = false,
+
+    /** In-app UI feedback only (slider drags, switches) — no bearing on the fold effect itself. */
+    val uiHapticsEnabled: Boolean = true,
+
+    /** Tactile feedback tied to the fold effect itself: engaging, releasing, and the safety auto-release. */
+    val blurHapticsEnabled: Boolean = true,
+    val blurHapticsEngageStrength: Float = 0.65f,
+    val blurHapticsEngageEnabled: Boolean = true,
+    val blurHapticsReleaseStrength: Float = 0.5f,
+    val blurHapticsReleaseEnabled: Boolean = true,
+    val blurHapticsTimeoutStrength: Float = 0.85f,
+    val blurHapticsTimeoutEnabled: Boolean = true
 ) {
     /** Once active, the effect holds until tilt falls well back toward neutral, so it can't flicker at the boundary. */
     val releaseDeg: Float get() = activateDeg * 0.6f
@@ -107,6 +119,14 @@ object FoldEchoSettings {
     private const val KEY_MAX_DARKEN = "max_darken"
     private const val KEY_MAX_DARKEN_ENABLED = "max_darken_enabled"
     private const val KEY_FLIP = "flip_tilt_direction"
+    private const val KEY_UI_HAPTICS_ENABLED = "ui_haptics_enabled"
+    private const val KEY_BLUR_HAPTICS_ENABLED = "blur_haptics_enabled"
+    private const val KEY_BLUR_HAPTICS_ENGAGE_STRENGTH = "blur_haptics_engage_strength"
+    private const val KEY_BLUR_HAPTICS_ENGAGE_ENABLED = "blur_haptics_engage_enabled"
+    private const val KEY_BLUR_HAPTICS_RELEASE_STRENGTH = "blur_haptics_release_strength"
+    private const val KEY_BLUR_HAPTICS_RELEASE_ENABLED = "blur_haptics_release_enabled"
+    private const val KEY_BLUR_HAPTICS_TIMEOUT_STRENGTH = "blur_haptics_timeout_strength"
+    private const val KEY_BLUR_HAPTICS_TIMEOUT_ENABLED = "blur_haptics_timeout_enabled"
 
     fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -143,7 +163,15 @@ object FoldEchoSettings {
             darkenPerMmEnabled = prefs.getBoolean(KEY_DARKEN_PER_MM_ENABLED, defaults.darkenPerMmEnabled),
             maxDarken = prefs.getFloat(KEY_MAX_DARKEN, defaults.maxDarken),
             maxDarkenEnabled = prefs.getBoolean(KEY_MAX_DARKEN_ENABLED, defaults.maxDarkenEnabled),
-            flipTiltDirection = prefs.getBoolean(KEY_FLIP, defaults.flipTiltDirection)
+            flipTiltDirection = prefs.getBoolean(KEY_FLIP, defaults.flipTiltDirection),
+            uiHapticsEnabled = prefs.getBoolean(KEY_UI_HAPTICS_ENABLED, defaults.uiHapticsEnabled),
+            blurHapticsEnabled = prefs.getBoolean(KEY_BLUR_HAPTICS_ENABLED, defaults.blurHapticsEnabled),
+            blurHapticsEngageStrength = prefs.getFloat(KEY_BLUR_HAPTICS_ENGAGE_STRENGTH, defaults.blurHapticsEngageStrength),
+            blurHapticsEngageEnabled = prefs.getBoolean(KEY_BLUR_HAPTICS_ENGAGE_ENABLED, defaults.blurHapticsEngageEnabled),
+            blurHapticsReleaseStrength = prefs.getFloat(KEY_BLUR_HAPTICS_RELEASE_STRENGTH, defaults.blurHapticsReleaseStrength),
+            blurHapticsReleaseEnabled = prefs.getBoolean(KEY_BLUR_HAPTICS_RELEASE_ENABLED, defaults.blurHapticsReleaseEnabled),
+            blurHapticsTimeoutStrength = prefs.getFloat(KEY_BLUR_HAPTICS_TIMEOUT_STRENGTH, defaults.blurHapticsTimeoutStrength),
+            blurHapticsTimeoutEnabled = prefs.getBoolean(KEY_BLUR_HAPTICS_TIMEOUT_ENABLED, defaults.blurHapticsTimeoutEnabled)
         )
     }
 
@@ -178,6 +206,14 @@ object FoldEchoSettings {
             .putFloat(KEY_MAX_DARKEN, tunables.maxDarken)
             .putBoolean(KEY_MAX_DARKEN_ENABLED, tunables.maxDarkenEnabled)
             .putBoolean(KEY_FLIP, tunables.flipTiltDirection)
+            .putBoolean(KEY_UI_HAPTICS_ENABLED, tunables.uiHapticsEnabled)
+            .putBoolean(KEY_BLUR_HAPTICS_ENABLED, tunables.blurHapticsEnabled)
+            .putFloat(KEY_BLUR_HAPTICS_ENGAGE_STRENGTH, tunables.blurHapticsEngageStrength)
+            .putBoolean(KEY_BLUR_HAPTICS_ENGAGE_ENABLED, tunables.blurHapticsEngageEnabled)
+            .putFloat(KEY_BLUR_HAPTICS_RELEASE_STRENGTH, tunables.blurHapticsReleaseStrength)
+            .putBoolean(KEY_BLUR_HAPTICS_RELEASE_ENABLED, tunables.blurHapticsReleaseEnabled)
+            .putFloat(KEY_BLUR_HAPTICS_TIMEOUT_STRENGTH, tunables.blurHapticsTimeoutStrength)
+            .putBoolean(KEY_BLUR_HAPTICS_TIMEOUT_ENABLED, tunables.blurHapticsTimeoutEnabled)
             .apply()
     }
 
