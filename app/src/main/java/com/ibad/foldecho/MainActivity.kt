@@ -12,9 +12,12 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -37,6 +40,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +49,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +70,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -77,6 +84,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -84,6 +92,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.kashif_e.backdrop.backdrops.layerBackdrop
 import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
 import kotlin.math.roundToInt
@@ -122,6 +131,18 @@ class MainActivity : ComponentActivity() {
         haptics = HapticsController(this)
         tunables = FoldEchoSettings.load(this)
         applyWindowBackground(tunables.themeMode)
+        // Both bars transparent, so the mesh gradient is what shows behind the
+        // status bar and the gesture pill instead of a flat block of colour
+        // sitting on top of it. `SystemBarStyle.dark(TRANSPARENT)` is chosen
+        // for the transparent scrim, not for the icon colour it implies:
+        // `.auto()` would key the icons off the *system* night setting, which
+        // is wrong the moment ThemeMode pins the opposite one. The icons are
+        // set explicitly from the resolved theme below, in composition, which
+        // runs after this and wins.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
@@ -133,6 +154,20 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
+            // Dark icons on a light theme, light icons on a dark one. Keyed
+            // on `darkTheme` — the *resolved* value — so pinning Light while
+            // the system is in night mode still gets dark icons. DisposableEffect
+            // rather than SideEffect so it re-runs only when the theme actually
+            // flips, and nav-bar icons are set alongside since that bar is now
+            // transparent too.
+            DisposableEffect(darkTheme) {
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+                onDispose { }
+            }
+
             MaterialTheme(colorScheme = if (darkTheme) FoldEchoDarkColors else FoldEchoLightColors) {
                 val running by FoldEchoState.running.collectAsState()
                 val effectActive by FoldEchoState.effectActive.collectAsState()
@@ -227,7 +262,10 @@ class MainActivity : ComponentActivity() {
 
 /**
  * Hosts the backdrop source and the scrolling content as siblings in one Box:
- * the background behind, fixed, and the scrolling panel in front of it.
+ * the mesh gradient behind, fixed, and the scrolling panel in front of it. The
+ * Box fills the whole window including the area behind the system bars, so the
+ * gradient runs edge to edge; it is the *content* that gets inset, in
+ * ControlPanel, not this.
  *
  * The background is deliberately *outside* the scroll container and carries no
  * transform of its own, so it stays put while the cards travel over it. That
@@ -258,7 +296,7 @@ private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
     val backdrop = rememberLayerBackdrop()
 
     Box(Modifier.fillMaxSize()) {
-        SimpleBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
+        MeshGradientBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
         CompositionLocalProvider(LocalBackdrop provides backdrop) {
             content(scrollState)
         }
@@ -273,7 +311,7 @@ private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
  * hex-reference sites were blocked by this environment's network policy and
  * Apple's own docs are JS-rendered with no literal hex reachable.
  * `background`/`onBackground` are pure black/white, matching Apple's `label`
- * and unified with GlassPalette.backgroundTop rather
+ * and unified with GlassPalette.backgroundBase rather
  * than adding a third near-but-not-quite-matching near-black to the app.
  * `onSurfaceVariant`/`outlineVariant` use Apple's real alpha-based label
  * hierarchy (a base colour + alpha, not a distinct hue) rather than a flat
@@ -288,7 +326,7 @@ private val FoldEchoDarkColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFCDE5FF),
     secondary = Color(0xFF5E5CE6),            // systemIndigo dark
     tertiary = Color(0xFF64D2FF),             // systemTeal dark
-    background = Color(0xFF000000),           // the gradient's top stop in DarkGlassPalette
+    background = Color(0xFF05060A),           // DarkGlassPalette.backgroundBase — the mesh's opaque base
     onBackground = Color(0xFFFFFFFF),         // Apple `label` dark
     surface = Color(0xFF1C1C1E),              // Apple secondarySystemBackground dark
     onSurface = Color(0xFFFFFFFF),
@@ -308,7 +346,7 @@ private val FoldEchoLightColors = lightColorScheme(
     onPrimaryContainer = Color(0xFF00305A),
     secondary = Color(0xFF5856D6),            // systemIndigo light
     tertiary = Color(0xFF5AC8FA),             // systemTeal light
-    background = Color(0xFFF2F2F7),           // Apple systemGroupedBackground light — the gradient's top stop in LightGlassPalette
+    background = Color(0xFFFBF8F3),           // LightGlassPalette.backgroundBase — the mesh's warm off-white base
     onBackground = Color(0xFF000000),         // Apple `label` light
     surface = Color(0xFFF2F2F7),              // Apple secondarySystemBackground light
     onSurface = Color(0xFF000000),
@@ -458,6 +496,14 @@ private fun ControlPanel(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // Ahead of .verticalScroll, so the inset shrinks the scroll
+            // *viewport* rather than becoming scrollable padding: the wordmark
+            // starts below the status bar/notch and the last card clears the
+            // gesture pill, at every scroll position. safeDrawing rather than
+            // systemBars because systemBars alone excludes the display cutout,
+            // and the spec names the notch explicitly. Only MeshGradientBackground,
+            // which is a sibling outside this Column, extends behind the bars.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
             .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
@@ -1055,13 +1101,41 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
     }
 }
 
+/**
+ * One segment of the Ray-traced/Classic control.
+ *
+ * Audit result, since this was asked as a question: the label colour was
+ * **not** hardcoded. It already read `onPrimary` when selected and
+ * `onSurfaceVariant` when not, both straight off `MaterialTheme.colorScheme`.
+ * The illegibility came from the *value* those roles resolve to, not from
+ * bypassing the theme. `onSurfaceVariant` is Apple's `secondaryLabel`
+ * (#3C3C43 at 60% alpha at the time the light-mode screenshot was taken),
+ * which is a deliberately de-emphasised role — fine for a caption under a
+ * heading, wrong for one of two tappable labels that must be read at 13sp,
+ * and worse once the card tint underneath it dropped to let the mesh through.
+ *
+ * The unselected segment now uses `onSurface` — the full-strength label role,
+ * pure #000000 in light and #FFFFFF in dark — so neither state is a dimmed
+ * variant of anything. Weight carries the selected/unselected distinction
+ * instead of opacity, which is what iOS's own segmented control does, and the
+ * colour crossfades on the same spring the sliding indicator uses so the label
+ * does not flip to white before the blue pill has arrived under it.
+ */
 @Composable
 private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressScale = rememberPressScale(interactionSource)
-    val foreground = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val foreground by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        label = "modeOptionForeground"
+    )
     Box(
         modifier = modifier
             .scale(pressScale)
@@ -1073,7 +1147,12 @@ private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Mo
             .padding(vertical = 11.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = foreground, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(
+            label,
+            color = foreground,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+        )
     }
 }
 
@@ -1123,7 +1202,24 @@ private fun StatusCard(
                     Text(
                         "\"Display over other apps\" is off — the effect can't draw without it.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFFFD79A),
+                        // Was a hardcoded #FFD79A — a pale cream picked for a
+                        // dark card, effectively invisible on a light one.
+                        // Found while auditing item 4's claim that the
+                        // segmented control was hardcoded (it wasn't); this
+                        // one actually was, and is the same defect class, so
+                        // it is fixed here rather than left to be re-reported.
+                        // Apple systemOrange resolves per theme instead.
+                        // NOT isSystemInDarkTheme(): ThemeMode can pin Light
+                        // while the system is in night mode, and this has to
+                        // follow the *resolved* theme. colorScheme.background
+                        // is pinned per theme, so its luminance is that signal
+                        // without threading a new parameter or composition
+                        // local through for one string.
+                        color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                            Color(0xFFFF9F0A) // Apple systemOrange dark
+                        } else {
+                            Color(0xFFC2410C) // darkened orange — systemOrange itself is ~2.5:1 on white
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))

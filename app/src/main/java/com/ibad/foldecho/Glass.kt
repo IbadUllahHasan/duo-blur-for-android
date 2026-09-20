@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -33,6 +34,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -68,6 +70,24 @@ object GlassRadii {
  * a flat sticker outline rather than glass. The rim is carried entirely by
  * the highlight now — see [GlassSurface].
  */
+/**
+ * One radial blob of [MeshGradientBackground]. Position and radius are
+ * *fractions*, not absolute pixels, so one palette describes the same
+ * composition on any screen size: [centerX]/[centerY] are fractions of the
+ * layer's width/height (values slightly outside 0..1 are deliberate — a blob
+ * anchored just off-screen contributes only its soft outer falloff), and
+ * [radiusFraction] is a fraction of the layer's longest side.
+ *
+ * [color]'s own alpha is the blob's peak opacity at its centre; the falloff to
+ * fully transparent is applied on top of it.
+ */
+data class MeshBlob(
+    val centerX: Float,
+    val centerY: Float,
+    val radiusFraction: Float,
+    val color: Color
+)
+
 data class GlassPalette(
     val cardTint: Color,
     val cardBackdropBlurRadius: Dp,
@@ -76,9 +96,13 @@ data class GlassPalette(
     val specularColor: Color,
     val specularAlpha: Float,
     val highlightWidth: Dp,
-    /** Top and bottom stops of [SimpleBackground]'s vertical gradient. `backgroundTop` is also what the window's `ColorDrawable` and `MaterialTheme.colorScheme.background` are pinned to, so there is one true app background per theme. */
-    val backgroundTop: Color,
-    val backgroundBottom: Color,
+    /** Opaque base [MeshGradientBackground] paints before any blob. Also what the window's `ColorDrawable` and `MaterialTheme.colorScheme.background` are pinned to, so there is one true app background per theme and no seam at the system bars. */
+    val backgroundBase: Color,
+    /** The blobs composited over [backgroundBase], in draw order. Fixed data — there is nothing here for an animation or a sensor to drive. */
+    val meshBlobs: List<MeshBlob>,
+    /** The thin uniform rim around every [GlassSurface]. Semi-transparent by design: an opaque stroke reads as a sticker outline, not as the lit edge of a pane. */
+    val borderColor: Color,
+    val borderWidth: Dp,
     /** [GlassSwitch]'s "on" fill — Apple's systemGreen, the real iOS UISwitch colour. */
     val switchOnTint: Color,
     /** [GlassSwitch]'s "off" fill — a neutral overlay so the off track isn't invisible against a varying backdrop. Not an Apple-sourced value; a reasoned approximation. */
@@ -100,15 +124,25 @@ data class GlassPalette(
  * "barely readable" complaint.
  */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF2C2C2E).copy(alpha = 0.62f),
+    cardTint = Color(0xFF0B0D14).copy(alpha = 0.30f),
     cardBackdropBlurRadius = 10.dp,
     lensRefractionHeight = 9.dp,
     lensRefractionAmount = 16.dp,
     specularColor = Color.White,
     specularAlpha = 0.55f,
     highlightWidth = 0.75.dp,
-    backgroundTop = Color(0xFF000000),
-    backgroundBottom = Color(0xFF1C1C1E),
+    backgroundBase = Color(0xFF05060A),
+    // Vivid hues at moderate opacity, which is what reads as colour against a
+    // near-black base — the same hex at a light-mode alpha would disappear.
+    meshBlobs = listOf(
+        MeshBlob(0.12f, 0.08f, 0.85f, Color(0xFF2E5FE8).copy(alpha = 0.50f)), // blue
+        MeshBlob(0.92f, 0.18f, 0.80f, Color(0xFF7B3FE4).copy(alpha = 0.46f)), // purple
+        MeshBlob(0.05f, 0.58f, 0.70f, Color(0xFF0E9B8A).copy(alpha = 0.38f)), // teal
+        MeshBlob(0.88f, 0.72f, 0.78f, Color(0xFFD8417E).copy(alpha = 0.40f)), // pink
+        MeshBlob(0.50f, 1.02f, 0.75f, Color(0xFF3D3BC4).copy(alpha = 0.30f))  // indigo, anchored just off the bottom edge
+    ),
+    borderColor = Color.White.copy(alpha = 0.20f),
+    borderWidth = 0.75.dp,
     switchOnTint = Color(0xFF30D158).copy(alpha = 0.92f),
     switchOffTint = Color.White.copy(alpha = 0.14f)
 )
@@ -121,15 +155,29 @@ val DarkGlassPalette = GlassPalette(
  * the low diagnostic ones.
  */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.78f),
+    cardTint = Color.White.copy(alpha = 0.40f),
     cardBackdropBlurRadius = 10.dp,
     lensRefractionHeight = 8.dp,
     lensRefractionAmount = 14.dp,
     specularColor = Color.White,
     specularAlpha = 0.75f,
     highlightWidth = 0.75.dp,
-    backgroundTop = Color(0xFFF2F2F7),
-    backgroundBottom = Color(0xFFE5E5EA),
+    backgroundBase = Color(0xFFFBF8F3),
+    // Deliberately *not* the dark palette's blobs re-alpha'd: the composition
+    // is mirrored (blue moves to the top-right, purple to the top-left) and
+    // each hue is lightened before the alpha drop, so these read as tinted
+    // light falling across an off-white page rather than as colour patches.
+    meshBlobs = listOf(
+        MeshBlob(0.85f, 0.06f, 0.80f, Color(0xFF4C7DF0).copy(alpha = 0.20f)), // blue
+        MeshBlob(0.10f, 0.20f, 0.75f, Color(0xFF8A5CF0).copy(alpha = 0.18f)), // purple
+        MeshBlob(0.92f, 0.55f, 0.72f, Color(0xFF2FB3A3).copy(alpha = 0.15f)), // teal
+        MeshBlob(0.18f, 0.82f, 0.80f, Color(0xFFEC6A9E).copy(alpha = 0.17f)), // pink
+        MeshBlob(0.55f, 1.05f, 0.75f, Color(0xFF6366F1).copy(alpha = 0.12f))  // indigo, anchored just off the bottom edge
+    ),
+    // Light grey rather than white: a white rim is invisible against the
+    // off-white base between blobs, which is most of a light-mode screen.
+    borderColor = Color(0xFF9CA3AF).copy(alpha = 0.38f),
+    borderWidth = 0.75.dp,
     switchOnTint = Color(0xFF34C759).copy(alpha = 0.92f),
     switchOffTint = Color.Black.copy(alpha = 0.10f)
 )
@@ -225,9 +273,16 @@ fun GlassSurface(
                 // the children, so text stays at full contrast.
                 onDrawSurface = { drawRect(palette.cardTint) }
             )
+            // Before .clip, not after: `border` strokes centred on the shape's
+            // outline, so a clip *preceding* it would swallow the outer half
+            // and render a 0.75dp rim as an uneven ~0.4dp one. Here the border
+            // node sits outside the clip node, draws its content first and the
+            // stroke over the top, and keeps its full declared width.
+            .border(palette.borderWidth, palette.borderColor, shape)
             .clip(shape)
     } else {
         Modifier
+            .border(palette.borderWidth, palette.borderColor, shape)
             .clip(shape)
             .background(palette.cardTint)
     }
@@ -434,46 +489,66 @@ private val SLIDER_TRACK_HEIGHT = 28.dp
 private val SLIDER_THUMB_SIZE = 32.dp
 
 /**
- * The backdrop every glass card samples: one vertical gradient, top to bottom,
- * and nothing else.
+ * The backdrop every glass card samples: an opaque base plus four or five soft,
+ * overlapping radial blobs — a mesh gradient — and nothing else.
  *
- * This replaces a high-density micro-dot matrix (2dp dots on a 12dp grid, with
- * an accent every 4th node). That drew on the order of seventeen hundred
- * `drawCircle` calls into the captured backdrop layer, and the layer is
- * re-captured whenever the content over it changes — so the cost landed on
- * scroll frames, on expand/collapse frames, and on every slider drag. It is a
- * single `drawRect` now, which is what "change the backgrounds to something
- * simple" asked for and also removes the largest fixed per-frame cost on the
- * screen.
- *
- * It is deliberately motionless — no drift animation, nothing driven by the
- * tilt sensor. The glass effect is demonstrated by the cards moving over this
- * field as the panel scrolls, so the field itself staying put is the whole
- * point: it is the fixed reference the refraction distorts against.
+ * It is deliberately motionless. There is no animation driving it, no sensor
+ * read anywhere in this file, and no scroll value reaching it: the blob set
+ * comes straight out of [GlassPalette.meshBlobs], which is fixed data resolved
+ * once per theme. The glass effect is demonstrated by the cards moving over
+ * this field as the panel scrolls, so the field itself staying put is the
+ * whole point — it is the fixed reference the refraction distorts against.
  *
  * Drawn as a sibling *behind* the scrolling content, never inside the scroll
  * container, so scrolling moves the cards across it rather than dragging it
- * along with them.
+ * along with them. This is the same structural rule the dot grid and the plain
+ * gradient before it were held to.
  *
- * This paints its own opaque base — [GlassPalette.backgroundTop]/
- * [GlassPalette.backgroundBottom], not MaterialTheme's background — rather
- * than letting the Surface behind it show through: the backdrop layer captures
- * only what this composable draws, and a transparent capture would leave the
- * glass sampling nothing.
+ * Cost is five full-screen `drawRect`s with a radial shader each, against the
+ * ~1700 `drawCircle` calls the dot-grid version needed. It also lands in the
+ * captured backdrop layer, which only re-records when something invalidates
+ * it, so it is not paid again per scroll frame.
+ *
+ * This paints its own opaque base — [GlassPalette.backgroundBase], not
+ * MaterialTheme's background — rather than letting the Surface behind it show
+ * through: the backdrop layer captures only what this composable draws, and a
+ * transparent capture would leave the glass sampling nothing.
  */
 @Composable
-fun SimpleBackground(modifier: Modifier = Modifier) {
+fun MeshGradientBackground(modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
 
     Box(
         modifier
             .fillMaxSize()
             .drawBehind {
-                drawRect(
-                    Brush.verticalGradient(
-                        colors = listOf(palette.backgroundTop, palette.backgroundBottom)
+                drawRect(palette.backgroundBase)
+
+                // Radius is a fraction of the *longest* side so a blob keeps
+                // its shape relative to the screen rather than stretching with
+                // the aspect ratio.
+                val longestSide = size.maxDimension
+
+                palette.meshBlobs.forEach { blob ->
+                    val peak = blob.color
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            // Four stops, not two: a straight colour-to-
+                            // transparent ramp falls off linearly and leaves a
+                            // visible disc edge. Front-loading the decay keeps
+                            // the centre solid and lets the rim vanish.
+                            0f to peak,
+                            0.35f to peak.copy(alpha = peak.alpha * 0.62f),
+                            0.70f to peak.copy(alpha = peak.alpha * 0.22f),
+                            1f to Color.Transparent,
+                            center = Offset(
+                                x = size.width * blob.centerX,
+                                y = size.height * blob.centerY
+                            ),
+                            radius = longestSide * blob.radiusFraction
+                        )
                     )
-                )
+                }
             }
     )
 }
