@@ -1022,7 +1022,9 @@ private fun InfoTooltip(text: String, glyph: String = "i") {
     var expanded by remember { mutableStateOf(false) }
     // Popup's own `offset` is raw pixels, not Dp — passing a bare dp-sized
     // int there would be a near-invisible gap on any high-density screen.
-    val gapPx = with(LocalDensity.current) { 8.dp.roundToPx() }
+    val density = LocalDensity.current
+    val gapPx = with(density) { 8.dp.roundToPx() }
+    val dotSizePx = with(density) { 18.dp.roundToPx() }
 
     Box {
         Box(
@@ -1041,10 +1043,25 @@ private fun InfoTooltip(text: String, glyph: String = "i") {
 
         if (expanded) {
             Popup(
+                // BottomCenter aligns the *popup's* bottom edge with the
+                // dot's bottom edge before any offset is applied; shifting up
+                // by the dot's own height plus a gap is what actually clears
+                // it and puts the bubble above, not overlapping it.
                 alignment = Alignment.BottomCenter,
-                offset = IntOffset(0, gapPx),
+                offset = IntOffset(0, -(dotSizePx + gapPx)),
                 onDismissRequest = { expanded = false },
-                properties = PopupProperties(focusable = false)
+                properties = PopupProperties(
+                    focusable = false,
+                    // The one real bug: this defaults to true, which sizes
+                    // the underlying popup window to the platform's default
+                    // dialog width — on a phone, that is the full screen.
+                    // The bubble itself was always wrapContentSize and never
+                    // grew, but with the window behind it stretched edge to
+                    // edge, outside taps mostly landed *inside* that oversized
+                    // window and never reached onDismissRequest — one bug
+                    // explaining both the width and the "won't close" report.
+                    usePlatformDefaultWidth = false
+                )
             ) {
                 Box(
                     modifier = Modifier
