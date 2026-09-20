@@ -44,12 +44,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.drawBackdrop
-import com.kashif_e.backdrop.effects.blur
 import com.kashif_e.backdrop.effects.lens
 import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.highlight.HighlightStyle
-import com.kashif_e.backdrop.shadow.Shadow
 
 /**
  * Corner radius is context-aware, not one flat constant: bigger surfaces read
@@ -83,8 +81,7 @@ data class MeshBlob(
 /**
  * Every value here is deliberately separate for light and dark — a
  * translucency/tint pair that reads correctly on a dark backdrop washes out
- * or muddies on a light one. Named `cardBackdropBlurRadius`, not "blur",
- * so it never collides with the Blur effect group's own parameters.
+ * or muddies on a light one.
  *
  * No border colour: a uniform stroke around the whole shape is what reads as
  * a flat sticker outline rather than glass. The rim is carried entirely by
@@ -92,7 +89,6 @@ data class MeshBlob(
  */
 data class GlassPalette(
     val cardTint: Color,
-    val cardBackdropBlurRadius: Dp,
     val lensRefractionHeight: Dp,
     val lensRefractionAmount: Dp,
     val specularColor: Color,
@@ -114,23 +110,26 @@ data class GlassPalette(
 /**
  * Dark glass over a mesh gradient.
  *
- * `cardTint` and `cardBackdropBlurRadius` went through two rounds already:
- * raised from a 3dp/0.15-alpha diagnostic pair (tuned for a since-removed
- * dot grid) up to 10dp/0.30 for text legibility over a flat gradient, then
- * *down* again here — 7dp/0.20 — once real on-device screenshots against the
- * mesh showed the opposite problem: cards reading as flat, opaque slabs with
- * the blob colours barely diffusing through, which is the direct complaint
- * this round answers. 10dp on top of a mesh built from soft, already-
- * overlapping radial gradients was double-softening — it smeared multiple
- * blobs' colours into a grey average under a card instead of letting one or
- * two read through distinctly, and 0.30 tint was covering another third of
- * whatever survived that. Legibility is now carried by the raised text
- * alphas from the previous round instead of a heavy tint, and by
- * [GlassSurface]'s restored `vibrancy()` pass on refractive surfaces.
+ * `cardTint` went through three rounds: a 0.15 diagnostic value tuned for a
+ * since-removed dot grid, up to 0.30 for text legibility over a flat
+ * gradient, then down to 0.20 once real screenshots showed cards reading as
+ * opaque slabs with the blob colours barely diffusing through. Legibility is
+ * carried by the raised text alphas instead of a heavy tint, and by
+ * [GlassSurface]'s `vibrancy()` pass on refractive surfaces.
+ *
+ * There is deliberately no blur radius here any more. It is not an oversight
+ * and not a performance compromise that costs appearance: a gaussian blur of
+ * five overlapping soft radial gradients returns very nearly the same five
+ * overlapping soft radial gradients, because the source has no detail at the
+ * scale a 7dp kernel operates on. It was a full RenderEffect pass per glass
+ * surface per frame buying a difference that is not visible. The glass here
+ * is carried by tint, border, highlight and — on refractive surfaces — the
+ * lens distortion, which does visibly bend the gradient. If the backdrop ever
+ * becomes something with real detail (a photo, a list of content scrolling
+ * behind), blur earns its cost back and should come back with it.
  */
 val DarkGlassPalette = GlassPalette(
     cardTint = Color(0xFF0B0D14).copy(alpha = 0.20f),
-    cardBackdropBlurRadius = 7.dp,
     lensRefractionHeight = 9.dp,
     lensRefractionAmount = 16.dp,
     specularColor = Color.White,
@@ -161,7 +160,6 @@ val DarkGlassPalette = GlassPalette(
  */
 val LightGlassPalette = GlassPalette(
     cardTint = Color.White.copy(alpha = 0.24f),
-    cardBackdropBlurRadius = 7.dp,
     lensRefractionHeight = 8.dp,
     lensRefractionAmount = 14.dp,
     specularColor = Color.White,
@@ -214,6 +212,9 @@ val LocalBackdrop = compositionLocalOf<Backdrop?> { null }
  */
 private const val HIGHLIGHT_ANGLE_DEG = 45f
 
+/** Tuned to read like the library Shadow's old 12dp-radius/0.15-alpha soft drop, via the platform's own shadow renderer instead of an offscreen blur. */
+private val CARD_SHADOW_ELEVATION = 6.dp
+
 /**
  * The reusable "pane of glass": real backdrop refraction of whatever is behind
  * it, plus a fixed specular highlight. [content] still owns its own padding —
@@ -221,22 +222,36 @@ private const val HIGHLIGHT_ANGLE_DEG = 45f
  *
  * ### What the three flags actually cost, and what each buys
  *
- * A real, on-device GPU overdraw capture (not the raw surface count guessed
- * at previously) showed the true picture: every `GlassSurface` stacks up to
- * four translucent full-area draws (shadow, the blurred backdrop-sample
- * layer, the tint fill, the border), and small controls are *nested inside*
- * a card that already paints that same four-layer stack — so the pixels
- * under, say, the "Flip tilt direction" switch were getting drawn on the
- * order of eight to ten times a frame, not four. That is what "the whole
- * page is red" actually was: nesting depth at shared pixels, which a fix to
- * the mesh background alone (a separate, real, but much smaller contributor)
- * could not touch. It is also most of the scroll smoothness cost: the
- * backdrop library's `LayerBackdrop.isCoordinatesDependent = true` means
- * every one of those stacked surfaces re-samples and re-runs its RenderEffect
- * on every frame a card's on-screen position changes, i.e. every scroll
- * frame — confirmed by reading the library's own `DrawBackdropModifier.kt`.
- * More stacked surfaces means more of that cost paid per frame while
- * scrolling, not just more static overdraw.
+ * Read the library's own sources before changing any of this — the cost is
+ * not where it looks. "Red overdraw" and "not smooth" turned out to be two
+ * different problems with two different causes, and two earlier rounds of
+ * fixes aimed at the wrong one each time.
+ *
+ * **Overdraw** is dominated by full-screen *opaque* fills, not by the glass.
+ * Three of them stacked before a single card was drawn: the window's
+ * ColorDrawable, a `Surface(color = background)`, and
+ * [MeshGradientBackground]'s own base. That is 3x on every pixel on screen,
+ * plus blob coverage on top — red everywhere, including regions with no card
+ * at all, which is the tell. Two of the three are now gone.
+ *
+ * **Smoothness** is dominated by offscreen render targets, which the overdraw
+ * debug view does not show at all. Each fully-featured surface used to
+ * allocate and re-record *three* separate `GraphicsLayer`s every frame:
+ * `ShadowNode` records one at (width + radius*4) x (height + radius*4) and
+ * blurs it with a mask filter; `HighlightNode` records one and runs an AGSL
+ * `RuntimeShader` over it; `DrawBackdropNode` records one (replaying the
+ * whole background layer, translated) and applies blur + vibrancy + lens.
+ * On a tile-based mobile GPU every render-target switch forces a tile flush
+ * and resolve, so ~6 visible surfaces meant well over a dozen of them per
+ * frame — against an 8.33ms budget at 120Hz. That is the structural reason
+ * this could not feel like ordinary scrolling, which does none of them.
+ *
+ * And all of it is paid *per frame while scrolling*, because
+ * `LayerBackdrop.isCoordinatesDependent = true` and its `layoutCoordinates`
+ * uses `neverEqualPolicy()` — every layout pass writes that state and
+ * invalidates the draw, so a single pixel of scroll re-runs the whole chain
+ * on every surface. Reducing per-surface cost is therefore the only lever
+ * that matters; the count of surfaces multiplies whatever it is.
  *
  * [refractive] (default on) gates `vibrancy()` and `lens()` — the two
  * effects that make a card read as colour-saturated, bending glass rather
@@ -281,11 +296,23 @@ fun GlassSurface(
 
     val glass = if (backdrop != null && !flat) {
         Modifier
+            // Native elevation shadow instead of the library's: this sets
+            // shadowElevation on the surface's own RenderNode and lets the
+            // platform's hardware shadow path draw it, with no app-side
+            // offscreen layer and no mask-filter blur. Outermost in the
+            // chain so it renders behind everything else.
+            .then(
+                if (elevated) Modifier.shadow(CARD_SHADOW_ELEVATION, shape, clip = false)
+                else Modifier
+            )
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { shape },
+                // No blur() here any more — see the doc comment. On a
+                // backdrop that is five overlapping soft radial gradients,
+                // a 7dp gaussian is very close to an identity function, but
+                // it is a full RenderEffect pass per surface per frame.
                 effects = {
-                    blur(palette.cardBackdropBlurRadius.toPx())
                     if (refractive) {
                         vibrancy()
                         lens(
@@ -309,9 +336,14 @@ fun GlassSurface(
                         )
                     }
                 } else null,
-                shadow = if (elevated) {
-                    { Shadow(radius = 12.dp, color = Color.Black.copy(alpha = 0.15f)) }
-                } else null,
+                // Always null: replaced by Modifier.shadow above. The
+                // library's Shadow allocates its own GraphicsLayer and
+                // record()s it every frame at (width + radius*4) by
+                // (height + radius*4) — for the old 12dp radius that is the
+                // card plus 48dp in each dimension — then blurs it with a
+                // mask filter. That is a second offscreen render target and
+                // a second blur per card, per frame, for a drop shadow.
+                shadow = null,
                 // How the library wants glass tinted: over the effects, under
                 // the children, so text stays at full contrast.
                 onDrawSurface = { drawRect(palette.cardTint) }

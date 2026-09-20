@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
@@ -57,10 +58,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -108,6 +109,9 @@ class MainActivity : ComponentActivity() {
     private var tunables by mutableStateOf(Tunables())
     private var canDrawOverlays by mutableStateOf(false)
 
+    /** Set once Compose has painted a frame; see [retireWindowBackgroundAfterFirstFrame]. */
+    private var windowBackgroundRetired = false
+
     private val requestCapture =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val data = result.data
@@ -131,6 +135,7 @@ class MainActivity : ComponentActivity() {
         haptics = HapticsController(this)
         tunables = FoldEchoSettings.load(this)
         applyWindowBackground(tunables.themeMode)
+        retireWindowBackgroundAfterFirstFrame()
         // Both bars transparent, so the mesh gradient is what shows behind the
         // status bar and the gesture pill instead of a flat block of colour
         // sitting on top of it. `SystemBarStyle.dark(TRANSPARENT)` is chosen
@@ -178,7 +183,18 @@ class MainActivity : ComponentActivity() {
                     LocalUiHapticsEnabled provides tunables.uiHapticsEnabled,
                     LocalGlassPalette provides if (darkTheme) DarkGlassPalette else LightGlassPalette
                 ) {
-                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    // No Surface here any more. Surface(color = ...) paints an
+                    // opaque full-screen rect, and MeshGradientBackground
+                    // already paints its own opaque base over the identical
+                    // area — two full-screen fills for one background. That
+                    // was one of three stacked opaque fills every pixel paid
+                    // for before a single card was drawn (see
+                    // retireWindowBackground for the other). Surface's only
+                    // other job here was LocalContentColor, which is provided
+                    // directly instead.
+                    CompositionLocalProvider(
+                        LocalContentColor provides MaterialTheme.colorScheme.onBackground
+                    ) {
                         GlassScene { scrollState ->
                             ControlPanel(
                                 scrollState = scrollState,
@@ -242,6 +258,14 @@ class MainActivity : ComponentActivity() {
      * match whatever the preference actually resolves to.
      */
     private fun applyWindowBackground(mode: ThemeMode) {
+        // Once Compose has painted, this drawable is pure overdraw — see
+        // retireWindowBackgroundAfterFirstFrame. Re-applying it on a later
+        // theme change would silently put that cost back, and there is
+        // nothing left for it to fix: the in-app theme flip repaints
+        // immediately now (GlassSurface's key(palette)), so the flash this
+        // guards against can only happen on a cold start, before that first
+        // frame exists.
+        if (windowBackgroundRetired) return
         val dark = when (mode) {
             ThemeMode.SYSTEM ->
                 resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
@@ -251,6 +275,36 @@ class MainActivity : ComponentActivity() {
         }
         window.setBackgroundDrawable(
             ColorDrawable(getColor(if (dark) R.color.window_background_dark else R.color.window_background_light))
+        )
+    }
+
+    /**
+     * The window's own `ColorDrawable` covers the gap between the window
+     * appearing and Compose's first frame, which is real — it is what keeps a
+     * cold start from flashing the wrong theme. After that frame it is a
+     * full-screen opaque draw underneath another full-screen opaque draw
+     * ([MeshGradientBackground]'s base), i.e. pure overdraw on every pixel,
+     * forever. An on-device GPU overdraw capture came back red across the
+     * entire screen — including areas with no card on them at all — which is
+     * what three stacked full-screen fills look like before anything else is
+     * drawn.
+     *
+     * Dropping it the moment it stops being useful is the documented Android
+     * fix for exactly this. The pre-draw listener fires just before the first
+     * traversal paints, and MeshGradientBackground's base is opaque and fills
+     * the window edge to edge, so nothing is ever left showing through.
+     */
+    private fun retireWindowBackgroundAfterFirstFrame() {
+        val decor = window.decorView
+        decor.viewTreeObserver.addOnPreDrawListener(
+            object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    decor.viewTreeObserver.removeOnPreDrawListener(this)
+                    windowBackgroundRetired = true
+                    window.setBackgroundDrawable(null)
+                    return true
+                }
+            }
         )
     }
 
