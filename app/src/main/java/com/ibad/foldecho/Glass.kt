@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -45,6 +46,7 @@ import com.kashif_e.backdrop.Backdrop
 import com.kashif_e.backdrop.drawBackdrop
 import com.kashif_e.backdrop.effects.blur
 import com.kashif_e.backdrop.effects.lens
+import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.highlight.HighlightStyle
 import com.kashif_e.backdrop.shadow.Shadow
@@ -110,22 +112,25 @@ data class GlassPalette(
 )
 
 /**
- * Dark glass over a near-black vertical gradient.
+ * Dark glass over a mesh gradient.
  *
- * `cardBackdropBlurRadius` and `cardTint` were both pinned to *diagnostic*
- * values (3dp / 0.15 alpha) while the backdrop was a 12dp-pitch micro-dot
- * matrix: any blur radius near that pitch averaged the dots into a flat wash
- * instead of softening them, so the radius had to stay well under it and the
- * tint had to stay low to keep any texture visible at all. That constraint is
- * gone with the dot grid: a smooth gradient has no fine pattern to destroy,
- * so the radius can go back up to a frosted value and the tint back up to
- * where a card reads as a real, legible surface rather than a barely-there
- * film. That legibility is the point — text over a 0.15-alpha card was the
- * "barely readable" complaint.
+ * `cardTint` and `cardBackdropBlurRadius` went through two rounds already:
+ * raised from a 3dp/0.15-alpha diagnostic pair (tuned for a since-removed
+ * dot grid) up to 10dp/0.30 for text legibility over a flat gradient, then
+ * *down* again here — 7dp/0.20 — once real on-device screenshots against the
+ * mesh showed the opposite problem: cards reading as flat, opaque slabs with
+ * the blob colours barely diffusing through, which is the direct complaint
+ * this round answers. 10dp on top of a mesh built from soft, already-
+ * overlapping radial gradients was double-softening — it smeared multiple
+ * blobs' colours into a grey average under a card instead of letting one or
+ * two read through distinctly, and 0.30 tint was covering another third of
+ * whatever survived that. Legibility is now carried by the raised text
+ * alphas from the previous round instead of a heavy tint, and by
+ * [GlassSurface]'s restored `vibrancy()` pass on refractive surfaces.
  */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF0B0D14).copy(alpha = 0.30f),
-    cardBackdropBlurRadius = 10.dp,
+    cardTint = Color(0xFF0B0D14).copy(alpha = 0.20f),
+    cardBackdropBlurRadius = 7.dp,
     lensRefractionHeight = 9.dp,
     lensRefractionAmount = 16.dp,
     specularColor = Color.White,
@@ -155,8 +160,8 @@ val DarkGlassPalette = GlassPalette(
  * the low diagnostic ones.
  */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.40f),
-    cardBackdropBlurRadius = 10.dp,
+    cardTint = Color.White.copy(alpha = 0.24f),
+    cardBackdropBlurRadius = 7.dp,
     lensRefractionHeight = 8.dp,
     lensRefractionAmount = 14.dp,
     specularColor = Color.White,
@@ -167,12 +172,19 @@ val LightGlassPalette = GlassPalette(
     // is mirrored (blue moves to the top-right, purple to the top-left) and
     // each hue is lightened before the alpha drop, so these read as tinted
     // light falling across an off-white page rather than as colour patches.
+    //
+    // Alphas raised from an initial 0.12-0.20 pass: a real light-mode
+    // screenshot showed the mesh nearly invisible even in the open
+    // background, well before any card sat on top of it to dim it further —
+    // "lower opacity than dark" had overshot into "not really there". Still
+    // clearly lower than dark's 0.30-0.50 range, which is what keeps this
+    // reading as tinted light rather than saturated colour patches.
     meshBlobs = listOf(
-        MeshBlob(0.85f, 0.06f, 0.80f, Color(0xFF4C7DF0).copy(alpha = 0.20f)), // blue
-        MeshBlob(0.10f, 0.20f, 0.75f, Color(0xFF8A5CF0).copy(alpha = 0.18f)), // purple
-        MeshBlob(0.92f, 0.55f, 0.72f, Color(0xFF2FB3A3).copy(alpha = 0.15f)), // teal
-        MeshBlob(0.18f, 0.82f, 0.80f, Color(0xFFEC6A9E).copy(alpha = 0.17f)), // pink
-        MeshBlob(0.55f, 1.05f, 0.75f, Color(0xFF6366F1).copy(alpha = 0.12f))  // indigo, anchored just off the bottom edge
+        MeshBlob(0.85f, 0.06f, 0.80f, Color(0xFF4C7DF0).copy(alpha = 0.32f)), // blue
+        MeshBlob(0.10f, 0.20f, 0.75f, Color(0xFF8A5CF0).copy(alpha = 0.29f)), // purple
+        MeshBlob(0.92f, 0.55f, 0.72f, Color(0xFF2FB3A3).copy(alpha = 0.24f)), // teal
+        MeshBlob(0.18f, 0.82f, 0.80f, Color(0xFFEC6A9E).copy(alpha = 0.27f)), // pink
+        MeshBlob(0.55f, 1.05f, 0.75f, Color(0xFF6366F1).copy(alpha = 0.19f))  // indigo, anchored just off the bottom edge
     ),
     // Light grey rather than white: a white rim is invisible against the
     // off-white base between blobs, which is most of a light-mode screen.
@@ -221,13 +233,20 @@ private const val HIGHLIGHT_ANGLE_DEG = 45f
  * asked for is intact — it is the part that was costing frames without being
  * visible that is gone.
  *
- * Two more effects were dropped outright for the same reason:
- * - `vibrancy()`, a full saturation pass over the sampled layer — least
- *   visible of the three, and now pointless over a near-neutral gradient.
- * - `chromaticAberration`, which triples the lens shader's per-pixel sample
- *   count. It existed specifically so the dot grid's accent dots would split
- *   into colour at the refraction rim; with the grid gone there is no chroma
- *   in the backdrop left for it to separate.
+ * `chromaticAberration` stays off everywhere: it triples the lens shader's
+ * per-pixel sample count, and it existed for the old dot grid's accent dots to
+ * split into colour at the refraction rim. That is a real cost for a rim
+ * effect, worth reconsidering if the mesh's colour needs to visibly fringe at
+ * a card's edge later, but not turned on speculatively here.
+ *
+ * `vibrancy()` — a saturation boost over the sampled layer — is back, but
+ * gated on [refractive] alongside `lens`, not dropped outright: real
+ * screenshots against the mesh gradient background showed cards reading as
+ * flat and washed-out rather than glassy, and vibrancy is what makes the
+ * blurred, overlapping blob colours underneath read as saturated glass
+ * instead of a grey smear. It only runs on the handful of refractive cards,
+ * not the ~30 small controls this whole [refractive] split exists to keep
+ * cheap, so it does not reopen the performance issue it was cut for.
  */
 @Composable
 fun GlassSurface(
@@ -247,6 +266,7 @@ fun GlassSurface(
                 effects = {
                     blur(palette.cardBackdropBlurRadius.toPx())
                     if (refractive) {
+                        vibrancy()
                         lens(
                             refractionHeight = palette.lensRefractionHeight.toPx(),
                             refractionAmount = palette.lensRefractionAmount.toPx(),
@@ -504,10 +524,15 @@ private val SLIDER_THUMB_SIZE = 32.dp
  * along with them. This is the same structural rule the dot grid and the plain
  * gradient before it were held to.
  *
- * Cost is five full-screen `drawRect`s with a radial shader each, against the
- * ~1700 `drawCircle` calls the dot-grid version needed. It also lands in the
- * captured backdrop layer, which only re-records when something invalidates
- * it, so it is not paid again per scroll frame.
+ * Cost is one full-screen opaque `drawRect` plus five radial-gradient
+ * `drawRect`s clipped to each blob's own bounding square — not full-screen —
+ * against the ~1700 `drawCircle` calls the dot-grid version needed. That clip
+ * is deliberate, not incidental: an earlier version painted every blob across
+ * the entire canvas regardless of how little of it the gradient actually
+ * reached, which an on-device GPU overdraw capture showed as 4x+ (red) across
+ * the whole screen. It also lands in the captured backdrop layer, which only
+ * re-records when something invalidates it, so none of this is paid again
+ * per scroll frame.
  *
  * This paints its own opaque base — [GlassPalette.backgroundBase], not
  * MaterialTheme's background — rather than letting the Surface behind it show
@@ -531,6 +556,22 @@ fun MeshGradientBackground(modifier: Modifier = Modifier) {
 
                 palette.meshBlobs.forEach { blob ->
                     val peak = blob.color
+                    val center = Offset(
+                        x = size.width * blob.centerX,
+                        y = size.height * blob.centerY
+                    )
+                    val radius = longestSide * blob.radiusFraction
+
+                    // Constrained to the blob's own bounding square instead of
+                    // the old fillMaxSize() drawRect. The shader's centre/
+                    // radius above are in absolute canvas coordinates, so this
+                    // only crops which pixels get painted — identical output —
+                    // but it is what took a GPU overdraw capture from red
+                    // (4x+) across the whole screen to roughly 1x outside the
+                    // blob overlaps: previously every one of the 5 blobs
+                    // painted the *entire* screen, alpha-blending a fully
+                    // transparent outer ring over areas the gradient never
+                    // visibly reaches at all.
                     drawRect(
                         brush = Brush.radialGradient(
                             // Four stops, not two: a straight colour-to-
@@ -541,12 +582,11 @@ fun MeshGradientBackground(modifier: Modifier = Modifier) {
                             0.35f to peak.copy(alpha = peak.alpha * 0.62f),
                             0.70f to peak.copy(alpha = peak.alpha * 0.22f),
                             1f to Color.Transparent,
-                            center = Offset(
-                                x = size.width * blob.centerX,
-                                y = size.height * blob.centerY
-                            ),
-                            radius = longestSide * blob.radiusFraction
-                        )
+                            center = center,
+                            radius = radius
+                        ),
+                        topLeft = center - Offset(radius, radius),
+                        size = Size(radius * 2f, radius * 2f)
                     )
                 }
             }
