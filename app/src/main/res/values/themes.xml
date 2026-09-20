@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      The app window itself has to follow night mode, not just the Compose tree.
+      This replaces @android:style/Theme.Material.Light.NoActionBar, which was a
+      fixed *light*, non-DayNight platform theme: it kept a light windowBackground
+      behind the Compose surface in dark mode, and — because forceDarkAllowed
+      defaults to true on a light theme — left the platform free to auto-darken
+      the hierarchy on top of whatever Compose had already drawn. Compose owns
+      every colour in this app, so force-dark is turned off outright.
+
+      DeviceDefault.DayNight is API 29+; minSdk here is 31. It has no .NoActionBar
+      variant, so the two action-bar flags are set by hand.
+    -->
+    <style name="Theme.DuoFlow" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowBackground">@color/window_background</item>
+
+        <!--
+          Edge-to-edge, declared here as well as via enableEdgeToEdge() in
+          onCreate. The runtime call is what actually fits the window; these
+          four exist so the very first frame - drawn from the theme, before
+          onCreate runs - is already transparent, rather than flashing the
+          opaque bar this was reported as.
+
+          The two enforce*Contrast flags are the important pair: on API 29+ the
+          platform will otherwise paint its own translucent scrim behind a
+          transparent bar, which is exactly the "solid block sitting on top of
+          the background" symptom. Both are API 29+ attributes and minSdk here
+          is 31, so no -v29 qualifier is needed.
+        -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+    </style>
+
+</resources>

@@ -3,14 +3,22 @@ package com.ibad.foldecho
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.drawable.ColorDrawable
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
+import android.view.ViewTreeObserver
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -18,9 +26,14 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +42,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,29 +51,24 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -68,17 +77,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
+import androidx.core.view.WindowInsetsControllerCompat
+import com.kashif_e.backdrop.backdrops.layerBackdrop
+import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
 import kotlin.math.roundToInt
 
 /**
@@ -91,6 +109,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var haptics: HapticsController
     private var tunables by mutableStateOf(Tunables())
     private var canDrawOverlays by mutableStateOf(false)
+
+    /** Set once Compose has painted a frame; see [retireWindowBackgroundAfterFirstFrame]. */
+    private var windowBackgroundRetired = false
 
     private val requestCapture =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -114,28 +135,70 @@ class MainActivity : ComponentActivity() {
         projectionManager = getSystemService(MediaProjectionManager::class.java)
         haptics = HapticsController(this)
         tunables = FoldEchoSettings.load(this)
+        applyWindowBackground(tunables.themeMode)
+        retireWindowBackgroundAfterFirstFrame()
+        // Both bars transparent, so the mesh gradient is what shows behind the
+        // status bar and the gesture pill instead of a flat block of colour
+        // sitting on top of it. `SystemBarStyle.dark(TRANSPARENT)` is chosen
+        // for the transparent scrim, not for the icon colour it implies:
+        // `.auto()` would key the icons off the *system* night setting, which
+        // is wrong the moment ThemeMode pins the opposite one. The icons are
+        // set explicitly from the resolved theme below, in composition, which
+        // runs after this and wins.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         setContent {
-            val darkTheme = isSystemInDarkTheme()
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (tunables.themeMode) {
+                ThemeMode.SYSTEM -> systemDark
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            // Dark icons on a light theme, light icons on a dark one. Keyed
+            // on `darkTheme` — the *resolved* value — so pinning Light while
+            // the system is in night mode still gets dark icons. DisposableEffect
+            // rather than SideEffect so it re-runs only when the theme actually
+            // flips, and nav-bar icons are set alongside since that bar is now
+            // transparent too.
+            DisposableEffect(darkTheme) {
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+                onDispose { }
+            }
+
             MaterialTheme(colorScheme = if (darkTheme) FoldEchoDarkColors else FoldEchoLightColors) {
                 val running by FoldEchoState.running.collectAsState()
                 val effectActive by FoldEchoState.effectActive.collectAsState()
                 val deviation by FoldEchoState.deviationDeg.collectAsState()
-                val hazeState = remember { HazeState() }
 
                 CompositionLocalProvider(
                     LocalHaptics provides haptics,
                     LocalUiHapticsEnabled provides tunables.uiHapticsEnabled,
-                    LocalGlassPalette provides if (darkTheme) DarkGlassPalette else LightGlassPalette,
-                    LocalHazeState provides hazeState
+                    LocalGlassPalette provides if (darkTheme) DarkGlassPalette else LightGlassPalette
                 ) {
-                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                        Box(Modifier.fillMaxSize()) {
-                            AmbientBackground(Modifier.fillMaxSize().haze(state = hazeState))
+                    // No Surface here any more. Surface(color = ...) paints an
+                    // opaque full-screen rect, and MeshGradientBackground
+                    // already paints its own opaque base over the identical
+                    // area — two full-screen fills for one background. That
+                    // was one of three stacked opaque fills every pixel paid
+                    // for before a single card was drawn (see
+                    // retireWindowBackground for the other). Surface's only
+                    // other job here was LocalContentColor, which is provided
+                    // directly instead.
+                    CompositionLocalProvider(
+                        LocalContentColor provides MaterialTheme.colorScheme.onBackground
+                    ) {
+                        GlassScene { scrollState ->
                             ControlPanel(
+                                scrollState = scrollState,
                                 running = running,
                                 effectActive = effectActive,
                                 deviationDeg = deviation,
@@ -182,53 +245,178 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateTunables(updated: Tunables) {
+        val themeChanged = updated.themeMode != tunables.themeMode
         tunables = updated
         FoldEchoSettings.save(this, updated)
+        if (themeChanged) applyWindowBackground(updated.themeMode)
+    }
+
+    /**
+     * values/values-night resolve @color/window_background from the *system*
+     * night setting, which is right for ThemeMode.SYSTEM and wrong the moment
+     * the user pins the opposite one — you'd get a flash of the other theme
+     * behind Compose on every cold start. Re-point the window drawable to
+     * match whatever the preference actually resolves to.
+     */
+    private fun applyWindowBackground(mode: ThemeMode) {
+        // Once Compose has painted, this drawable is pure overdraw — see
+        // retireWindowBackgroundAfterFirstFrame. Re-applying it on a later
+        // theme change would silently put that cost back, and there is
+        // nothing left for it to fix: the in-app theme flip repaints
+        // immediately now (GlassSurface's key(palette)), so the flash this
+        // guards against can only happen on a cold start, before that first
+        // frame exists.
+        if (windowBackgroundRetired) return
+        val dark = when (mode) {
+            ThemeMode.SYSTEM ->
+                resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+                    Configuration.UI_MODE_NIGHT_YES
+            ThemeMode.LIGHT -> false
+            ThemeMode.DARK -> true
+        }
+        window.setBackgroundDrawable(
+            ColorDrawable(getColor(if (dark) R.color.window_background_dark else R.color.window_background_light))
+        )
+    }
+
+    /**
+     * The window's own `ColorDrawable` covers the gap between the window
+     * appearing and Compose's first frame, which is real — it is what keeps a
+     * cold start from flashing the wrong theme. After that frame it is a
+     * full-screen opaque draw underneath another full-screen opaque draw
+     * ([MeshGradientBackground]'s base), i.e. pure overdraw on every pixel,
+     * forever. An on-device GPU overdraw capture came back red across the
+     * entire screen — including areas with no card on them at all — which is
+     * what three stacked full-screen fills look like before anything else is
+     * drawn.
+     *
+     * Dropping it the moment it stops being useful is the documented Android
+     * fix for exactly this. The pre-draw listener fires just before the first
+     * traversal paints, and MeshGradientBackground's base is opaque and fills
+     * the window edge to edge, so nothing is ever left showing through.
+     */
+    private fun retireWindowBackgroundAfterFirstFrame() {
+        val decor = window.decorView
+        decor.viewTreeObserver.addOnPreDrawListener(
+            object : ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    decor.viewTreeObserver.removeOnPreDrawListener(this)
+                    windowBackgroundRetired = true
+                    window.setBackgroundDrawable(null)
+                    return true
+                }
+            }
+        )
     }
 
     private fun resetTunables() {
         tunables = FoldEchoSettings.reset(this)
+        applyWindowBackground(tunables.themeMode)
     }
 }
 
-/** Dark palette — surfaces step up in tone (background < surface < surfaceContainer). Glass cards use their own translucent tint on top of this via GlassPalette, not these surface colors directly. */
+/**
+ * Hosts the backdrop source and the scrolling content as siblings in one Box:
+ * the mesh gradient behind, fixed, and the scrolling panel in front of it. The
+ * Box fills the whole window including the area behind the system bars, so the
+ * gradient runs edge to edge; it is the *content* that gets inset, in
+ * ControlPanel, not this.
+ *
+ * The background is deliberately *outside* the scroll container and carries no
+ * transform of its own, so it stays put while the cards travel over it. That
+ * is what makes the glass legible: each card refracts whatever part of the
+ * fixed field it currently covers, and scrolling alone is what animates the
+ * effect. No extra code drives it.
+ *
+ * This replaces an earlier arrangement that translated the whole Box —
+ * background included — as a custom overscroll rubber-band. That moved the
+ * grid along with the cards, which is exactly what must not happen now, so
+ * both it and the accompanying stock-overscroll suppression are gone. The
+ * scroll container's own overscroll is left alone.
+ *
+ * The bug that arrangement originally existed for was Haze-specific: Haze drew
+ * each card's backdrop in the *background's* layer from layout-time
+ * coordinates, so a draw-time overscroll stretch pulled a card away from its
+ * own backdrop and exposed the punched-out rectangle as a "ghost" layer.
+ * LayerBackdrop draws the sampled layer inside the card's own draw scope
+ * instead, so card and backdrop transform together whatever the scroller does,
+ * and that bug cannot recur here.
+ */
+@Composable
+private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
+    val scrollState = rememberScrollState()
+    // One backdrop for the whole screen, remembered here at the scaffold and
+    // handed down: every card samples this same captured layer. Creating one
+    // per card would discard the capture on each recomposition.
+    val backdrop = rememberLayerBackdrop()
+
+    Box(Modifier.fillMaxSize()) {
+        MeshGradientBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
+        CompositionLocalProvider(LocalBackdrop provides backdrop) {
+            content(scrollState)
+        }
+    }
+}
+
+/**
+ * Dark palette, remapped to Apple's iOS system-color values. `systemBlue` is
+ * live-verified (fetched a real iOS design-guideline dataset); the rest are
+ * extremely stable, independently well-known standard values unchanged since
+ * iOS 13, not each individually re-fetched here — the best third-party
+ * hex-reference sites were blocked by this environment's network policy and
+ * Apple's own docs are JS-rendered with no literal hex reachable.
+ * `background`/`onBackground` are pure black/white, matching Apple's `label`
+ * and unified with GlassPalette.backgroundBase rather
+ * than adding a third near-but-not-quite-matching near-black to the app.
+ * `onSurfaceVariant`/`outlineVariant` use Apple's real alpha-based label
+ * hierarchy (a base colour + alpha, not a distinct hue) rather than a flat
+ * hex. `primaryContainer`/`onPrimaryContainer`/`surfaceVariant` have no Apple
+ * equivalent and aren't read anywhere in this app today (confirmed by grep) —
+ * reasonable Material3-convention values, low risk either way.
+ */
 private val FoldEchoDarkColors = darkColorScheme(
-    primary = Color(0xFF9ED6FF),
-    onPrimary = Color(0xFF00344E),
-    primaryContainer = Color(0xFF00496D),
+    primary = Color(0xFF0A84FF),              // systemBlue dark
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF003C6B),
     onPrimaryContainer = Color(0xFFCDE5FF),
-    secondary = Color(0xFFBAC8D8),
-    tertiary = Color(0xFFD3BFE0),
-    background = Color(0xFF0E0F13),
-    onBackground = Color(0xFFE4E2E6),
-    surface = Color(0xFF131318),
-    onSurface = Color(0xFFE4E2E6),
-    surfaceVariant = Color(0xFF42474E),
-    onSurfaceVariant = Color(0xFFC2C7CE),
-    surfaceContainer = Color(0xFF1B1C22),
-    surfaceContainerHigh = Color(0xFF23252C),
-    outline = Color(0xFF8C9199),
-    outlineVariant = Color(0xFF42474E)
+    secondary = Color(0xFF5E5CE6),            // systemIndigo dark
+    tertiary = Color(0xFF64D2FF),             // systemTeal dark
+    background = Color(0xFF05060A),           // DarkGlassPalette.backgroundBase — the mesh's opaque base
+    onBackground = Color(0xFFFFFFFF),         // Apple `label` dark
+    surface = Color(0xFF1C1C1E),              // Apple secondarySystemBackground dark
+    onSurface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFF2C2C2E),
+    onSurfaceVariant = Color(0xFFEBEBF5).copy(alpha = 0.78f), // Apple secondaryLabel dark, alpha raised — see the light scheme's note
+    surfaceContainer = Color(0xFF2C2C2E),     // Apple tertiarySystemBackground dark
+    surfaceContainerHigh = Color(0xFF3A3A3C),
+    outline = Color(0xFF38383A),              // Apple opaqueSeparator dark
+    outlineVariant = Color(0xFF545458).copy(alpha = 0.65f) // Apple separator dark
 )
 
-/** Light counterpart — not just an inverted dark theme; tuned separately so glass tint/specular actually read against a bright background instead of washing out. */
+/** Light counterpart, same Apple remap — see [FoldEchoDarkColors]'s doc comment for sourcing. */
 private val FoldEchoLightColors = lightColorScheme(
-    primary = Color(0xFF00618A),
+    primary = Color(0xFF007AFF),              // systemBlue light — live-verified
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFC4E7FF),
-    onPrimaryContainer = Color(0xFF001E2C),
-    secondary = Color(0xFF4C6172),
-    tertiary = Color(0xFF5F5470),
-    background = Color(0xFFF6F8FA),
-    onBackground = Color(0xFF1A1C1E),
-    surface = Color(0xFFFAFCFE),
-    onSurface = Color(0xFF1A1C1E),
-    surfaceVariant = Color(0xFFDCE3E9),
-    onSurfaceVariant = Color(0xFF41484D),
-    surfaceContainer = Color(0xFFEFF2F5),
-    surfaceContainerHigh = Color(0xFFE9ECEF),
-    outline = Color(0xFF72787E),
-    outlineVariant = Color(0xFFC1C7CD)
+    primaryContainer = Color(0xFFD6E8FF),
+    onPrimaryContainer = Color(0xFF00305A),
+    secondary = Color(0xFF5856D6),            // systemIndigo light
+    tertiary = Color(0xFF5AC8FA),             // systemTeal light
+    background = Color(0xFFFBF8F3),           // LightGlassPalette.backgroundBase — the mesh's warm off-white base
+    onBackground = Color(0xFF000000),         // Apple `label` light
+    surface = Color(0xFFF2F2F7),              // Apple secondarySystemBackground light
+    onSurface = Color(0xFF000000),
+    surfaceVariant = Color(0xFFE5E5EA),
+    // Apple's real secondaryLabel is #3C3C43 @0.6, and that is what was here.
+    // It is calibrated for opaque iOS backgrounds; over a *translucent* glass
+    // card the effective contrast drops again, which is what made light-mode
+    // body text "barely readable". Raised to 0.85 rather than kept nominally
+    // Apple-accurate, and the two call sites that used to multiply this by a
+    // further 0.8 no longer do.
+    onSurfaceVariant = Color(0xFF3C3C43).copy(alpha = 0.85f),
+    surfaceContainer = Color(0xFFF2F2F7),     // Apple's tertiarySystemBackground light is #FFFFFF, same as background — reuses secondarySystemBackground instead
+    surfaceContainerHigh = Color(0xFFE5E5EA),
+    outline = Color(0xFFC6C6C8),              // Apple opaqueSeparator light
+    outlineVariant = Color(0xFF3C3C43).copy(alpha = 0.29f) // Apple separator light
 )
 
 /** Resolved once in MainActivity.onCreate and handed down so any control can give a light tap without threading a parameter through every call site. Null only before composition ever runs. */
@@ -236,6 +424,44 @@ private val LocalHaptics = compositionLocalOf<HapticsController?> { null }
 
 /** Mirrors Tunables.uiHapticsEnabled so controls can skip the tap without every caller checking it themselves. */
 private val LocalUiHapticsEnabled = compositionLocalOf { true }
+
+/**
+ * Feedback for switch flips, routed through the platform instead of our own
+ * Vibrator.
+ *
+ * HapticFeedbackConstants.TOGGLE_ON / TOGGLE_OFF (API 34) is what the OS maps
+ * onto the device's dedicated toggle haptic — on a Samsung that is their
+ * vibration HAL's own tuned toggle waveform, which is why it feels like the
+ * rest of the system and a raw VibrationEffect primitive does not. Compose's
+ * LocalHapticFeedback can't reach these (it only exposes LongPress and
+ * TextHandleMove), so this goes through the host View directly.
+ *
+ * performHapticFeedback returning false means the system or the user has touch
+ * feedback switched off, so there is deliberately no fallback in that case —
+ * only pre-34 devices, which have no such constant at all, drop back to
+ * HapticsController.
+ *
+ * Module-visible (not private) so GlassSwitch in Glass.kt can fire this
+ * directly — LocalHaptics/LocalUiHapticsEnabled stay private, this function
+ * still closes over them from within this same file.
+ */
+@Composable
+internal fun rememberToggleHaptic(): (Boolean) -> Unit {
+    val view = LocalView.current
+    val haptics = LocalHaptics.current
+    val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    return { on ->
+        if (uiHapticsEnabled) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                view.performHapticFeedback(
+                    if (on) HapticFeedbackConstants.TOGGLE_ON else HapticFeedbackConstants.TOGGLE_OFF
+                )
+            } else {
+                haptics?.toggle(on)
+            }
+        }
+    }
+}
 
 private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
 private fun inverseLerp(a: Float, b: Float, v: Float) = ((v - a) / (b - a)).coerceIn(0f, 1f)
@@ -254,9 +480,9 @@ private fun applySensitivity(t: Tunables, dial: Float) = t.copy(
 )
 
 private fun blurT(t: Tunables) = inverseLerp(15f, 65f, t.maxBlurPx)
-private fun applyBlur(t: Tunables, dial: Float): Tunables {
+private fun applyBlur(t: Tunables, dial: Float, rayTraced: Boolean): Tunables {
     val updated = t.copy(maxBlurPx = lerp(15f, 65f, dial))
-    return if (updated.foldShaderEnabled) {
+    return if (rayTraced) {
         updated.copy(
             maxBlurRadiusPx = lerp(20f, 80f, dial),
             blurPerMm = lerp(0.8f, 3.2f, dial)
@@ -267,9 +493,9 @@ private fun applyBlur(t: Tunables, dial: Float): Tunables {
 }
 
 private fun shadowT(t: Tunables) = inverseLerp(0.25f, 0.75f, t.maxDim)
-private fun applyShadow(t: Tunables, dial: Float): Tunables {
+private fun applyShadow(t: Tunables, dial: Float, rayTraced: Boolean): Tunables {
     val updated = t.copy(maxDim = lerp(0.25f, 0.75f, dial))
-    return if (updated.foldShaderEnabled) {
+    return if (rayTraced) {
         updated.copy(
             maxDarken = lerp(0.35f, 0.95f, dial),
             darkenPerMm = lerp(0.008f, 0.045f, dial)
@@ -279,13 +505,13 @@ private fun applyShadow(t: Tunables, dial: Float): Tunables {
     }
 }
 
-private fun depthT(t: Tunables) = if (t.foldShaderEnabled) {
+private fun depthT(t: Tunables, rayTraced: Boolean) = if (rayTraced) {
     inverseLerp(450f, 150f, t.viewDistanceMm)
 } else {
     inverseLerp(0.15f, 0.75f, t.perspectiveStrength)
 }
 
-private fun applyDepth(t: Tunables, dial: Float): Tunables = if (t.foldShaderEnabled) {
+private fun applyDepth(t: Tunables, dial: Float, rayTraced: Boolean): Tunables = if (rayTraced) {
     t.copy(viewDistanceMm = lerp(450f, 150f, dial))
 } else {
     t.copy(
@@ -303,6 +529,7 @@ private fun applyHapticStrength(t: Tunables, dial: Float) = t.copy(
 
 @Composable
 private fun ControlPanel(
+    scrollState: ScrollState,
     running: Boolean,
     effectActive: Boolean,
     deviationDeg: Float,
@@ -314,18 +541,45 @@ private fun ControlPanel(
     onTunablesChange: (Tunables) -> Unit,
     onResetTunables: () -> Unit
 ) {
+    // Ray-traced fold is AGSL, which is API 33. On 31/32 OverlayController
+    // silently runs the classic renderer no matter what this preference says,
+    // so the panel has to show *classic's* tunables there — otherwise the card
+    // offers sliders that cannot reach the renderer actually drawing.
+    val rayTraced = tunables.foldShaderEnabled &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            // Ahead of .verticalScroll, so the inset shrinks the scroll
+            // *viewport* rather than becoming scrollable padding: the wordmark
+            // starts below the status bar/notch and the last card clears the
+            // gesture pill, at every scroll position. safeDrawing rather than
+            // systemBars because systemBars alone excludes the display cutout,
+            // and the spec names the notch explicitly. Only MeshGradientBackground,
+            // which is a sibling outside this Column, extends behind the bars.
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .verticalScroll(scrollState)
             .padding(horizontal = 20.dp, vertical = 24.dp)
     ) {
-        DuoFlowWordmark()
-        Text(
-            "Tilt-driven Duo effect, system-wide",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                DuoFlowWordmark()
+                Text(
+                    "Tilt-driven Duo effect, system-wide",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            ThemeToggleButton(
+                mode = tunables.themeMode,
+                onModeChange = { onTunablesChange(tunables.copy(themeMode = it)) }
+            )
+        }
 
         Spacer(Modifier.height(20.dp))
         StatusCard(
@@ -374,7 +628,7 @@ private fun ControlPanel(
                     "This device is on Android 12 — ray-traced fold needs 13 or newer, " +
                         "so the classic renderer runs regardless of which is selected here.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFFFD79A)
+                    color = Color(0xFFFF9500) // Apple systemOrange
                 )
             }
         }
@@ -426,11 +680,11 @@ private fun ControlPanel(
                 range = 0f..1f,
                 help = "How out-of-focus the tilted content gets, from a light haze to a heavy " +
                     "frost. Moves every blur-related parameter together."
-            ) { onTunablesChange(applyBlur(tunables, it)) }
+            ) { onTunablesChange(applyBlur(tunables, it, rayTraced)) }
 
             AdvancedSection {
                 TuningSlider(
-                    label = "Blur",
+                    label = "Peak blur radius",
                     readout = "${tunables.maxBlurPx.roundToInt()}px",
                     value = tunables.maxBlurPx,
                     range = 0f..80f,
@@ -439,7 +693,7 @@ private fun ControlPanel(
                     onEnabledChange = { onTunablesChange(tunables.copy(maxBlurPxEnabled = it)) }
                 ) { onTunablesChange(tunables.copy(maxBlurPx = it)) }
 
-                if (tunables.foldShaderEnabled) {
+                if (rayTraced) {
                     Spacer(Modifier.height(6.dp))
                     SectionHeader("Ray-traced fold")
 
@@ -475,7 +729,7 @@ private fun ControlPanel(
                 range = 0f..1f,
                 help = "How dark the tilted content gets, from barely dimmed to nearly black. " +
                     "Moves every darkening parameter together."
-            ) { onTunablesChange(applyShadow(tunables, it)) }
+            ) { onTunablesChange(applyShadow(tunables, it, rayTraced)) }
 
             AdvancedSection {
                 TuningSlider(
@@ -488,7 +742,7 @@ private fun ControlPanel(
                     onEnabledChange = { onTunablesChange(tunables.copy(maxDimEnabled = it)) }
                 ) { onTunablesChange(tunables.copy(maxDim = it)) }
 
-                if (tunables.foldShaderEnabled) {
+                if (rayTraced) {
                     Spacer(Modifier.height(6.dp))
                     SectionHeader("Ray-traced fold")
 
@@ -519,14 +773,14 @@ private fun ControlPanel(
         TuningGroup {
             TuningSlider(
                 label = "Depth",
-                readout = "${(depthT(tunables) * 100).roundToInt()}%",
-                value = depthT(tunables),
+                readout = "${(depthT(tunables, rayTraced) * 100).roundToInt()}%",
+                value = depthT(tunables, rayTraced),
                 range = 0f..1f,
                 help = "How much 3D depth the tilt reveals — flat and subtle, or a steep, dramatic recede."
-            ) { onTunablesChange(applyDepth(tunables, it)) }
+            ) { onTunablesChange(applyDepth(tunables, it, rayTraced)) }
 
             AdvancedSection {
-                if (tunables.foldShaderEnabled) {
+                if (rayTraced) {
                     TuningSlider(
                         label = "View distance",
                         readout = "${tunables.viewDistanceMm.roundToInt()}mm",
@@ -604,7 +858,7 @@ private fun ControlPanel(
 
             TuningToggle(
                 label = "Interface haptics",
-                help = "Light taps when you drag sliders or flip switches in this app. Doesn't affect the fold effect itself.",
+                help = "Taps when you drag sliders or flip switches in this app. Switches use the system's own toggle feedback. Doesn't affect the fold effect itself.",
                 checked = tunables.uiHapticsEnabled
             ) { onTunablesChange(tunables.copy(uiHapticsEnabled = it)) }
 
@@ -667,13 +921,13 @@ private fun ControlPanel(
                 "for consent on every tilt. Apps that block screenshots (banking, " +
                 "password managers, DRM video) will show black instead of their content.",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(24.dp))
     }
 }
 
-/** The glass shell every tuning section shares — real backdrop blur of the ambient background via Haze, not a flat translucent color. */
+/** The glass shell every tuning section shares — real refraction of the gradient behind it, not a flat translucent color. */
 @Composable
 private fun TuningGroup(content: @Composable () -> Unit) {
     GlassSurface(shape = RoundedCornerShape(GlassRadii.card)) {
@@ -721,10 +975,15 @@ private fun AdvancedSection(title: String = "Advanced", content: @Composable () 
         }
         AnimatedVisibility(
             visible = expanded,
+            // Was DampingRatioLowBouncy at StiffnessLow (200f) expanding — a
+            // spring that slow reads as lag rather than as easing, and every
+            // frame of it re-measures the card, which re-records the glass
+            // backdrop underneath. Non-bouncy at StiffnessMediumLow settles in
+            // roughly a third the time and does far less work getting there.
             enter = fadeIn(spring(stiffness = Spring.StiffnessMedium)) +
-                expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow)),
+                expandVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)),
             exit = fadeOut(spring(stiffness = Spring.StiffnessMedium)) +
-                shrinkVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+                shrinkVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow))
         ) {
             Column {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -735,24 +994,107 @@ private fun AdvancedSection(title: String = "Advanced", content: @Composable () 
     }
 }
 
-/** A floating "i"/"?" dot that opens a real Material3 tooltip popover on long-press, instead of a permanent subtitle. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * A floating "i"/"?" dot that opens its help text on a single tap, with the
+ * same interface-tick haptic every slider fires on release.
+ *
+ * Not built on Material3's `TooltipBox`: that trigger is long-press by
+ * design (the doc comment here used to say so approvingly, before this was
+ * reported as a defect), and `TooltipBox` does not publicly expose a way to
+ * turn that off — the one parameter that looked like it
+ * (`BasicTooltipBox`'s `enableUserInput`) lives one layer down in
+ * `foundation`, isn't forwarded by material3's `TooltipBox`, and doesn't
+ * appear in any released material3 API surface checked for this fix, so it
+ * would have been betting on an unreleased signature — exactly the mistake
+ * this session already made twice with this library. `Popup` and
+ * `Modifier.clickable`, used directly, sidestep the question entirely: both
+ * have been stable, unchanged public API for years, so there is nothing here
+ * to get wrong against a specific pinned version.
+ *
+ * `onDismissRequest` is `Popup`'s own long-standing behaviour, not something
+ * wired up by hand — a tap outside the bubble or the system back gesture both
+ * close it via [PopupProperties]'s defaults.
+ */
 @Composable
 private fun InfoTooltip(text: String, glyph: String = "i") {
-    val tooltipState = rememberTooltipState()
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-        tooltip = { PlainTooltip { Text(text) } },
-        state = tooltipState
-    ) {
+    val haptics = LocalHaptics.current
+    val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    val interactionSource = remember { MutableInteractionSource() }
+    var expanded by remember { mutableStateOf(false) }
+    // Popup's own `offset` is raw pixels, not Dp — passing a bare dp-sized
+    // int there would be a near-invisible gap on any high-density screen.
+    val density = LocalDensity.current
+    val gapPx = with(density) { 8.dp.roundToPx() }
+    val dotSizePx = with(density) { 18.dp.roundToPx() }
+
+    Box {
         Box(
             modifier = Modifier
                 .size(18.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .clickable(interactionSource = interactionSource, indication = null) {
+                    if (uiHapticsEnabled) haptics?.interfaceTick()
+                    expanded = !expanded
+                },
             contentAlignment = Alignment.Center
         ) {
             Text(glyph, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        if (expanded) {
+            Popup(
+                // BottomCenter aligns the *popup's* bottom edge with the
+                // dot's bottom edge before any offset is applied; shifting up
+                // by the dot's own height plus a gap is what actually clears
+                // it and puts the bubble above, not overlapping it.
+                alignment = Alignment.BottomCenter,
+                offset = IntOffset(0, -(dotSizePx + gapPx)),
+                onDismissRequest = { expanded = false },
+                properties = PopupProperties(
+                    focusable = false,
+                    // Kept, but this was never the actual bug — corrected
+                    // below. Popup content is measured with AT_MOST
+                    // constraints against the full screen width regardless of
+                    // this flag (verified against AndroidPopup.android.kt);
+                    // it only affects the window's *starting* LayoutParams,
+                    // which get overridden to match the measured content size
+                    // right after anyway. Left false since it's the more
+                    // correct setting for a compact popup, but it fixes
+                    // nothing on its own.
+                    usePlatformDefaultWidth = false
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        // The real bug: Text has no built-in "stay narrow"
+                        // behaviour. Given up to the full screen's AT_MOST
+                        // width to work with, a multi-line paragraph fills
+                        // that width with one long wrapped line before
+                        // breaking, instead of wrapping into a compact block
+                        // — and wrapContentSize() on this Box just reports
+                        // whatever size that Text decided on, which was
+                        // "nearly full screen". Capping the width forces the
+                        // Text to actually wrap narrow, which is what makes
+                        // this a small bubble instead of a banner — and once
+                        // the popup's real measured width shrinks to this,
+                        // onDismissRequest's outside-tap check (which compares
+                        // against the view's actual width/height) starts
+                        // working too, as a direct consequence of the same
+                        // fix rather than a separate one.
+                        .widthIn(max = 240.dp)
+                        .wrapContentSize()
+                        .clip(RoundedCornerShape(GlassRadii.chip))
+                        .background(MaterialTheme.colorScheme.inverseSurface)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.inverseOnSurface
+                    )
+                }
+            }
         }
     }
 }
@@ -780,6 +1122,68 @@ private fun DuoFlowWordmark() {
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.blur((index * 0.6f).dp)
             )
+        }
+    }
+}
+
+private fun nextThemeMode(mode: ThemeMode): ThemeMode = when (mode) {
+    ThemeMode.SYSTEM -> ThemeMode.DARK
+    ThemeMode.DARK -> ThemeMode.LIGHT
+    ThemeMode.LIGHT -> ThemeMode.SYSTEM
+}
+
+private fun glyphFor(mode: ThemeMode): String = when (mode) {
+    ThemeMode.SYSTEM -> "◐" // U+25D0 half-filled circle
+    ThemeMode.DARK -> "☾"   // U+263E
+    ThemeMode.LIGHT -> "☀"  // U+2600
+}
+
+/**
+ * Small circular glass button, trailing element of the header row —
+ * replaces the old three-way Appearance pill. Cycles ThemeMode in the
+ * order System -&gt; Dark -&gt; Light -&gt; System on tap, morphing its glyph with
+ * AnimatedContent. onTunablesChange already handles persistence and the
+ * window-background flash fix on any themeMode change, so this only needs
+ * to hand it the next mode.
+ */
+@Composable
+private fun ThemeToggleButton(mode: ThemeMode, onModeChange: (ThemeMode) -> Unit) {
+    val toggleHaptic = rememberToggleHaptic()
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
+    val next = nextThemeMode(mode)
+
+    GlassSurface(
+        shape = CircleShape,
+        modifier = Modifier
+            .size(40.dp)
+            .scale(pressScale)
+            .clickable(interactionSource = interactionSource, indication = null) {
+                // A 3-way cycle has no natural boolean the way a real switch
+                // does — pinning to Light/Dark reads as "the override turning
+                // on", returning to System as it turning back off.
+                toggleHaptic(next != ThemeMode.SYSTEM)
+                onModeChange(next)
+            }
+            .semantics {
+                contentDescription = "Theme: ${mode.name.lowercase()}, tap for ${next.name.lowercase()}"
+            }
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            AnimatedContent(
+                targetState = mode,
+                transitionSpec = {
+                    (fadeIn() + scaleIn(initialScale = 0.6f)) togetherWith
+                        (fadeOut() + scaleOut(targetScale = 0.6f))
+                },
+                label = "themeModeGlyph"
+            ) { m ->
+                Text(
+                    text = glyphFor(m),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
     }
 }
@@ -835,13 +1239,51 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
     }
 }
 
+/**
+ * One segment of the Ray-traced/Classic control.
+ *
+ * Second bug in this control, found the same way as the first — by reading
+ * the actual resolved values, not assuming a fix landed because it compiled.
+ * The previous round moved the unselected label from `onSurfaceVariant` to
+ * `onSurface` specifically so selected/unselected weren't two shades of the
+ * same colour. That works in light mode by coincidence: `onPrimary` (the
+ * selected colour, white) and `onSurface` (the unselected colour, black) are
+ * genuinely different there. In dark mode they are not — `FoldEchoDarkColors`
+ * sets both `onPrimary` and `onSurface` to the same pure `#FFFFFFFF`. Once
+ * the pill's own contrast against the glass card was the only thing carrying
+ * the distinction, and font-weight alone didn't read as strongly as intended,
+ * "which one is selected" stopped being answerable in dark mode — exactly
+ * the report.
+ *
+ * Fixed by not depending on two roles happening to differ: unselected now
+ * dims `onSurface` with its own alpha (`0.62`) rather than swapping to a
+ * different role. That is a real, theme-independent brightness difference
+ * from the selected label's full-opacity `onPrimary` in *every* theme, not
+ * one that depends on `onPrimary` and `onSurface` resolving to different
+ * colours — the exact assumption that broke in dark mode. Weight still
+ * reinforces it (SemiBold selected, Medium unselected), and the colour still
+ * crossfades on the same spring the sliding indicator uses.
+ */
 @Composable
 private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val haptics = LocalHaptics.current
     val uiHapticsEnabled = LocalUiHapticsEnabled.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressScale = rememberPressScale(interactionSource)
-    val foreground = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val foreground by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            // Dimmed, not a different role — see the doc comment above:
+            // onSurface itself is the same white as onPrimary in dark mode,
+            // so the distinction has to come from opacity, not hue, and has
+            // to work that way in every theme rather than happening to work
+            // in one of them.
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
+        label = "modeOptionForeground"
+    )
     Box(
         modifier = modifier
             .scale(pressScale)
@@ -853,7 +1295,12 @@ private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Mo
             .padding(vertical = 11.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = foreground, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(
+            label,
+            color = foreground,
+            fontSize = 13.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+        )
     }
 }
 
@@ -868,11 +1315,9 @@ private fun StatusCard(
     onRecalibrate: () -> Unit,
     onGrantOverlay: () -> Unit
 ) {
-    val haptics = LocalHaptics.current
-    val uiHapticsEnabled = LocalUiHapticsEnabled.current
     val (label, dot) = when {
         effectActive -> "Effect active" to MaterialTheme.colorScheme.primary
-        running -> "Watching for tilt" to Color(0xFF4ADE80)
+        running -> "Watching for tilt" to Color(0xFF34C759) // Apple systemGreen
         else -> "Off" to MaterialTheme.colorScheme.outline
     }
 
@@ -893,16 +1338,9 @@ private fun StatusCard(
                         fontWeight = FontWeight.Medium
                     )
                 }
-                Switch(
+                GlassSwitch(
                     checked = running,
-                    onCheckedChange = {
-                        if (uiHapticsEnabled) haptics?.interfaceTick()
-                        onToggle()
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary
-                    )
+                    onCheckedChange = { onToggle() }
                 )
             }
 
@@ -912,7 +1350,24 @@ private fun StatusCard(
                     Text(
                         "\"Display over other apps\" is off — the effect can't draw without it.",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFFFFD79A),
+                        // Was a hardcoded #FFD79A — a pale cream picked for a
+                        // dark card, effectively invisible on a light one.
+                        // Found while auditing item 4's claim that the
+                        // segmented control was hardcoded (it wasn't); this
+                        // one actually was, and is the same defect class, so
+                        // it is fixed here rather than left to be re-reported.
+                        // Apple systemOrange resolves per theme instead.
+                        // NOT isSystemInDarkTheme(): ThemeMode can pin Light
+                        // while the system is in night mode, and this has to
+                        // follow the *resolved* theme. colorScheme.background
+                        // is pinned per theme, so its luminance is that signal
+                        // without threading a new parameter or composition
+                        // local through for one string.
+                        color = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) {
+                            Color(0xFFFF9F0A) // Apple systemOrange dark
+                        } else {
+                            Color(0xFFC2410C) // darkened orange — systemOrange itself is ~2.5:1 on white
+                        },
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(Modifier.width(8.dp))
@@ -955,7 +1410,7 @@ private fun StatusCard(
                 Text(
                     "Triggers past ${tunables.activateDeg.roundToInt()}°",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 TextButton(onClick = onRecalibrate, enabled = running) { Text("Recalibrate") }
             }
@@ -1007,30 +1462,16 @@ private fun TuningSlider(
                 )
                 if (onEnabledChange != null) {
                     Spacer(Modifier.width(8.dp))
-                    Switch(
-                        checked = enabled,
-                        onCheckedChange = {
-                            if (uiHapticsEnabled) haptics?.interfaceTick()
-                            onEnabledChange(it)
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                            checkedTrackColor = MaterialTheme.colorScheme.primary
-                        )
-                    )
+                    GlassSwitch(checked = enabled, onCheckedChange = onEnabledChange)
                 }
             }
         }
-        Slider(
+        GlassSlider(
             value = value,
             onValueChange = onChange,
             onValueChangeFinished = { if (uiHapticsEnabled) haptics?.interfaceTick() },
             valueRange = range,
-            enabled = enabled,
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary
-            )
+            enabled = enabled
         )
     }
 }
@@ -1042,8 +1483,6 @@ private fun TuningToggle(
     checked: Boolean,
     onChange: (Boolean) -> Unit
 ) {
-    val haptics = LocalHaptics.current
-    val uiHapticsEnabled = LocalUiHapticsEnabled.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1057,16 +1496,6 @@ private fun TuningToggle(
             InfoTooltip(help)
         }
         Spacer(Modifier.width(12.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = {
-                if (uiHapticsEnabled) haptics?.interfaceTick()
-                onChange(it)
-            },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary
-            )
-        )
+        GlassSwitch(checked = checked, onCheckedChange = onChange)
     }
 }

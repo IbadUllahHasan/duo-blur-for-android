@@ -8,7 +8,7 @@ things that were investigated and ruled out (see the main
 
 Each card below Mode leads with one **simple dial** — a single slider that
 moves several real parameters together via a fixed low/high preset per
-parameter (e.g. dragging "Blur" moves Blur, Blur per mm, and Max blur radius
+parameter (e.g. dragging "Blur" moves Peak blur radius, Blur per mm, and Max blur radius
 at once). Nothing new is stored for the dial itself: it reads and writes the
 same parameters listed in the Advanced section underneath it, which is
 collapsed by default. Opening Advanced and adjusting a parameter by hand
@@ -19,7 +19,7 @@ to the same values, not a separate setting that overrides them.
 | --- | --- | --- |
 | Mode | Ray-traced fold / Classic (lean/scale) segmented control | *(none — nothing to hide)* |
 | Sensitivity | Sensitivity (deliberate ↔ easy trigger) + Flip tilt direction switch | Activation threshold, Full-tilt point |
-| Blur | Blur (sharp ↔ heavily blurred) | Blur, and in ray-traced mode also Blur per mm, Max blur radius |
+| Blur | Blur (sharp ↔ heavily blurred) | Peak blur radius, and in ray-traced mode also Blur per mm, Max blur radius |
 | Shadow | Shadow (bright ↔ nearly black) | Dim, and in ray-traced mode also Darken per mm, Max darken |
 | Depth | Depth (flat ↔ steep recede) | Ray-traced: View distance. Classic: Perspective, Recede, Motion Softness |
 | Finishing touches | *(none — just the accordion)* | Edge Fade, Corner Radius |
@@ -39,7 +39,7 @@ to the same values, not a separate setting that overrides them.
 | Max blur radius | 48px | Ray-traced | Yes | Ceiling on that radius |
 | Darken per mm | 2.0% | Ray-traced | Yes | Light lost per mm of that gap |
 | Max darken | 80% | Ray-traced | Yes | Ceiling on that loss |
-| Blur | 40px | Shared | Yes | Peak blur radius, graded from none at the hinge edge to full strength at the far edge in both modes |
+| Peak blur radius | 40px | Shared | Yes | Peak blur radius, graded from none at the hinge edge to full strength at the far edge in both modes |
 | Dim | 55% | Shared | Yes | How dark the frame goes at full tilt |
 | Edge Fade | 30% | Shared | Yes | Alpha gradient from opaque center to transparent edge, strength scaling with tilt |
 | Corner Radius | 100% | Shared | Yes | Fraction of this device's actual screen-corner radius (detected via `Display.getRoundedCorner`, falling back to 24dp) |

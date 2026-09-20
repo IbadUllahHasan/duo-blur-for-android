@@ -1,41 +1,53 @@
 package com.ibad.foldecho
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeDefaults
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import com.kashif_e.backdrop.Backdrop
+import com.kashif_e.backdrop.drawBackdrop
+import com.kashif_e.backdrop.effects.lens
+import com.kashif_e.backdrop.effects.vibrancy
+import com.kashif_e.backdrop.highlight.Highlight
+import com.kashif_e.backdrop.highlight.HighlightStyle
 
 /**
  * Corner radius is context-aware, not one flat constant: bigger surfaces read
@@ -49,180 +61,603 @@ object GlassRadii {
 }
 
 /**
+ * One radial blob of [MeshGradientBackground]. Position and radius are
+ * *fractions*, not absolute pixels, so one palette describes the same
+ * composition on any screen size: [centerX]/[centerY] are fractions of the
+ * layer's width/height (values slightly outside 0..1 are deliberate — a blob
+ * anchored just off-screen contributes only its soft outer falloff), and
+ * [radiusFraction] is a fraction of the layer's longest side.
+ *
+ * [color]'s own alpha is the blob's peak opacity at its centre; the falloff to
+ * fully transparent is applied on top of it.
+ */
+data class MeshBlob(
+    val centerX: Float,
+    val centerY: Float,
+    val radiusFraction: Float,
+    val color: Color
+)
+
+/**
  * Every value here is deliberately separate for light and dark — a
  * translucency/tint pair that reads correctly on a dark backdrop washes out
- * or muddies on a light one. Named `cardBackdropBlurRadius`, not "blur",
- * so it never collides with the Blur effect group's own parameters.
+ * or muddies on a light one.
+ *
+ * No border colour: a uniform stroke around the whole shape is what reads as
+ * a flat sticker outline rather than glass. The rim is carried entirely by
+ * the highlight now — see [GlassSurface].
  */
 data class GlassPalette(
     val cardTint: Color,
-    val cardBackdropBlurRadius: Dp,
-    val noiseFactor: Float,
-    val borderColor: Color,
+    val lensRefractionHeight: Dp,
+    val lensRefractionAmount: Dp,
     val specularColor: Color,
     val specularAlpha: Float,
-    val ambientColors: List<Color>
+    val highlightWidth: Dp,
+    /** Opaque base [MeshGradientBackground] paints before any blob. Also what the window's `ColorDrawable` and `MaterialTheme.colorScheme.background` are pinned to, so there is one true app background per theme and no seam at the system bars. */
+    val backgroundBase: Color,
+    /** The blobs composited over [backgroundBase], in draw order. Fixed data — there is nothing here for an animation or a sensor to drive. */
+    val meshBlobs: List<MeshBlob>,
+    /** The thin uniform rim around every [GlassSurface]. Semi-transparent by design: an opaque stroke reads as a sticker outline, not as the lit edge of a pane. */
+    val borderColor: Color,
+    val borderWidth: Dp,
+    /** [GlassSwitch]'s "on" fill — Apple's systemGreen, the real iOS UISwitch colour. */
+    val switchOnTint: Color,
+    /** [GlassSwitch]'s "off" fill — a neutral overlay so the off track isn't invisible against a varying backdrop. Not an Apple-sourced value; a reasoned approximation. */
+    val switchOffTint: Color
 )
 
+/**
+ * Dark glass over a mesh gradient.
+ *
+ * `cardTint` went through three rounds: a 0.15 diagnostic value tuned for a
+ * since-removed dot grid, up to 0.30 for text legibility over a flat
+ * gradient, then down to 0.20 once real screenshots showed cards reading as
+ * opaque slabs with the blob colours barely diffusing through. Legibility is
+ * carried by the raised text alphas instead of a heavy tint, and by
+ * [GlassSurface]'s `vibrancy()` pass on refractive surfaces.
+ *
+ * There is deliberately no blur radius here any more. It is not an oversight
+ * and not a performance compromise that costs appearance: a gaussian blur of
+ * five overlapping soft radial gradients returns very nearly the same five
+ * overlapping soft radial gradients, because the source has no detail at the
+ * scale a 7dp kernel operates on. It was a full RenderEffect pass per glass
+ * surface per frame buying a difference that is not visible. The glass here
+ * is carried by tint, border, highlight and — on refractive surfaces — the
+ * lens distortion, which does visibly bend the gradient. If the backdrop ever
+ * becomes something with real detail (a photo, a list of content scrolling
+ * behind), blur earns its cost back and should come back with it.
+ */
 val DarkGlassPalette = GlassPalette(
-    cardTint = Color(0xFF1B1C22).copy(alpha = 0.55f),
-    cardBackdropBlurRadius = 28.dp,
-    noiseFactor = 0.12f,
-    borderColor = Color.White.copy(alpha = 0.10f),
+    cardTint = Color(0xFF0B0D14).copy(alpha = 0.20f),
+    lensRefractionHeight = 9.dp,
+    lensRefractionAmount = 16.dp,
     specularColor = Color.White,
-    specularAlpha = 0.10f,
-    ambientColors = listOf(
-        Color(0xFF3D5AFE),
-        Color(0xFF7C4DFF),
-        Color(0xFF00BFA5),
-        Color(0xFFFF6E40)
-    )
+    specularAlpha = 0.55f,
+    highlightWidth = 0.75.dp,
+    backgroundBase = Color(0xFF05060A),
+    // Vivid hues at moderate opacity, which is what reads as colour against a
+    // near-black base — the same hex at a light-mode alpha would disappear.
+    meshBlobs = listOf(
+        MeshBlob(0.12f, 0.08f, 0.85f, Color(0xFF2E5FE8).copy(alpha = 0.50f)), // blue
+        MeshBlob(0.92f, 0.18f, 0.80f, Color(0xFF7B3FE4).copy(alpha = 0.46f)), // purple
+        MeshBlob(0.05f, 0.58f, 0.70f, Color(0xFF0E9B8A).copy(alpha = 0.38f)), // teal
+        MeshBlob(0.88f, 0.72f, 0.78f, Color(0xFFD8417E).copy(alpha = 0.40f)), // pink
+        MeshBlob(0.50f, 1.02f, 0.75f, Color(0xFF3D3BC4).copy(alpha = 0.30f))  // indigo, anchored just off the bottom edge
+    ),
+    borderColor = Color.White.copy(alpha = 0.20f),
+    borderWidth = 0.75.dp,
+    switchOnTint = Color(0xFF30D158).copy(alpha = 0.92f),
+    switchOffTint = Color.White.copy(alpha = 0.14f)
 )
 
+/**
+ * Light counterpart. Apple's own grouped-content convention: the page is the
+ * grey (`systemGroupedBackground`, #F2F2F7) and the cards are the white, not
+ * the other way round — which is also what makes near-black label text
+ * readable on them. See [DarkGlassPalette] for why these values are no longer
+ * the low diagnostic ones.
+ */
 val LightGlassPalette = GlassPalette(
-    cardTint = Color.White.copy(alpha = 0.55f),
-    cardBackdropBlurRadius = 28.dp,
-    noiseFactor = 0.08f,
-    borderColor = Color.White.copy(alpha = 0.6f),
+    cardTint = Color.White.copy(alpha = 0.24f),
+    lensRefractionHeight = 8.dp,
+    lensRefractionAmount = 14.dp,
     specularColor = Color.White,
-    specularAlpha = 0.35f,
-    ambientColors = listOf(
-        Color(0xFF90CAF9),
-        Color(0xFFCE93D8),
-        Color(0xFFA5D6A7),
-        Color(0xFFFFCC80)
-    )
+    specularAlpha = 0.75f,
+    highlightWidth = 0.75.dp,
+    backgroundBase = Color(0xFFFBF8F3),
+    // Deliberately *not* the dark palette's blobs re-alpha'd: the composition
+    // is mirrored (blue moves to the top-right, purple to the top-left) and
+    // each hue is lightened before the alpha drop, so these read as tinted
+    // light falling across an off-white page rather than as colour patches.
+    //
+    // Alphas raised from an initial 0.12-0.20 pass: a real light-mode
+    // screenshot showed the mesh nearly invisible even in the open
+    // background, well before any card sat on top of it to dim it further —
+    // "lower opacity than dark" had overshot into "not really there". Still
+    // clearly lower than dark's 0.30-0.50 range, which is what keeps this
+    // reading as tinted light rather than saturated colour patches.
+    meshBlobs = listOf(
+        MeshBlob(0.85f, 0.06f, 0.80f, Color(0xFF4C7DF0).copy(alpha = 0.32f)), // blue
+        MeshBlob(0.10f, 0.20f, 0.75f, Color(0xFF8A5CF0).copy(alpha = 0.29f)), // purple
+        MeshBlob(0.92f, 0.55f, 0.72f, Color(0xFF2FB3A3).copy(alpha = 0.24f)), // teal
+        MeshBlob(0.18f, 0.82f, 0.80f, Color(0xFFEC6A9E).copy(alpha = 0.27f)), // pink
+        MeshBlob(0.55f, 1.05f, 0.75f, Color(0xFF6366F1).copy(alpha = 0.19f))  // indigo, anchored just off the bottom edge
+    ),
+    // Light grey rather than white: a white rim is invisible against the
+    // off-white base between blobs, which is most of a light-mode screen.
+    borderColor = Color(0xFF9CA3AF).copy(alpha = 0.38f),
+    borderWidth = 0.75.dp,
+    switchOnTint = Color(0xFF34C759).copy(alpha = 0.92f),
+    switchOffTint = Color.Black.copy(alpha = 0.10f)
 )
 
 val LocalGlassPalette = compositionLocalOf { DarkGlassPalette }
 
-/** Shared across the whole screen: one blur source (the ambient background), many blurred children (each glass card). */
-val LocalHazeState = compositionLocalOf<HazeState?> { null }
+/**
+ * Shared across the whole screen: one captured backdrop layer (the background),
+ * many glass children sampling it. Held as a composition local so every card
+ * samples the same capture — see the note on GlassScene about why this must be
+ * remembered once at the scaffold rather than created per card.
+ */
+val LocalBackdrop = compositionLocalOf<Backdrop?> { null }
 
 /**
- * The reusable "pane of glass": real backdrop blur of whatever's behind it
- * (via Haze), a faint border to catch the edge like real glass would, and a
- * tilt-reactive specular highlight. [content] still owns its own padding —
+ * The one light-source angle every card's highlight uses, forever. 45° is the
+ * library's own default for HighlightStyle.Default.
+ *
+ * Deliberately a constant and not derived from anything: the highlight must
+ * look identical at all times and must not respond to device orientation, so
+ * there is nothing here to read a sensor from.
+ */
+private const val HIGHLIGHT_ANGLE_DEG = 45f
+
+/** Tuned to read like the library Shadow's old 12dp-radius/0.15-alpha soft drop, via the platform's own shadow renderer instead of an offscreen blur. */
+private val CARD_SHADOW_ELEVATION = 6.dp
+
+/**
+ * The reusable "pane of glass": real backdrop refraction of whatever is behind
+ * it, plus a fixed specular highlight. [content] still owns its own padding —
  * this only draws the surface itself.
+ *
+ * ### What the three flags actually cost, and what each buys
+ *
+ * Read the library's own sources before changing any of this — the cost is
+ * not where it looks. "Red overdraw" and "not smooth" turned out to be two
+ * different problems with two different causes, and two earlier rounds of
+ * fixes aimed at the wrong one each time.
+ *
+ * **Overdraw** is dominated by full-screen *opaque* fills, not by the glass.
+ * Three of them stacked before a single card was drawn: the window's
+ * ColorDrawable, a `Surface(color = background)`, and
+ * [MeshGradientBackground]'s own base. That is 3x on every pixel on screen,
+ * plus blob coverage on top — red everywhere, including regions with no card
+ * at all, which is the tell. Two of the three are now gone.
+ *
+ * **Smoothness** is dominated by offscreen render targets, which the overdraw
+ * debug view does not show at all. Each fully-featured surface used to
+ * allocate and re-record *three* separate `GraphicsLayer`s every frame:
+ * `ShadowNode` records one at (width + radius*4) x (height + radius*4) and
+ * blurs it with a mask filter; `HighlightNode` records one and runs an AGSL
+ * `RuntimeShader` over it; `DrawBackdropNode` records one (replaying the
+ * whole background layer, translated) and applies blur + vibrancy + lens.
+ * On a tile-based mobile GPU every render-target switch forces a tile flush
+ * and resolve, so ~6 visible surfaces meant well over a dozen of them per
+ * frame — against an 8.33ms budget at 120Hz. That is the structural reason
+ * this could not feel like ordinary scrolling, which does none of them.
+ *
+ * And all of it is paid *per frame while scrolling*, because
+ * `LayerBackdrop.isCoordinatesDependent = true` and its `layoutCoordinates`
+ * uses `neverEqualPolicy()` — every layout pass writes that state and
+ * invalidates the draw, so a single pixel of scroll re-runs the whole chain
+ * on every surface. Reducing per-surface cost is therefore the only lever
+ * that matters; the count of surfaces multiplies whatever it is.
+ *
+ * [refractive] (default on) gates `vibrancy()` and `lens()` — the two
+ * effects that make a card read as colour-saturated, bending glass rather
+ * than a plain frosted pane. Off for anything that does not need to visibly
+ * refract: a 28–31dp control's lens distortion was sub-pixel anyway.
+ *
+ * [elevated] (default on) gates `shadow` and `highlight` — the drop shadow
+ * and specular rim that make a card read as raised off the page. Both are
+ * real, separate modifier nodes and real, separate draws. A control nested
+ * inside an already-shadowed, already-rimmed card does not need its own
+ * copy of either, so small controls turn this off — two fewer stacked
+ * layers at exactly the pixels that were reading deepest red.
+ *
+ * [flat] (default off) skips the backdrop pipeline entirely — no blur, no
+ * shadow, no highlight, just the tint and border every surface gets either
+ * way. [GlassSwitch] uses this: its track's own sampled colour is almost
+ * entirely covered by the near-opaque [GlassPalette.switchOnTint]/
+ * `switchOffTint` overlay drawn on top of it regardless, so an independent
+ * real backdrop sample there was paying full shader cost for something the
+ * next draw call mostly hides. [GlassSlider]'s track deliberately does *not*
+ * use this — its unfilled portion is the whole point of "a glassy
+ * remainder" from the original reference, so it keeps [refractive] off and
+ * [elevated] off, but stays real glass.
+ *
+ * `chromaticAberration` stays off everywhere: it triples the lens shader's
+ * per-pixel sample count, and it existed for the old dot grid's accent dots
+ * to split into colour at the refraction rim. Worth reconsidering later if
+ * the mesh's colour needs to visibly fringe at a card's edge, not turned on
+ * speculatively here.
  */
 @Composable
 fun GlassSurface(
     shape: Shape = RoundedCornerShape(GlassRadii.card),
     modifier: Modifier = Modifier,
+    refractive: Boolean = true,
+    elevated: Boolean = true,
+    flat: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val hazeState = LocalHazeState.current
+    val backdrop = LocalBackdrop.current
     val palette = LocalGlassPalette.current
+
+    val glass = if (backdrop != null && !flat) {
+        Modifier
+            // Native elevation shadow instead of the library's: this sets
+            // shadowElevation on the surface's own RenderNode and lets the
+            // platform's hardware shadow path draw it, with no app-side
+            // offscreen layer and no mask-filter blur. Outermost in the
+            // chain so it renders behind everything else.
+            .then(
+                if (elevated) Modifier.shadow(CARD_SHADOW_ELEVATION, shape, clip = false)
+                else Modifier
+            )
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                // No blur() here any more — see the doc comment. On a
+                // backdrop that is five overlapping soft radial gradients,
+                // a 7dp gaussian is very close to an identity function, but
+                // it is a full RenderEffect pass per surface per frame.
+                effects = {
+                    if (refractive) {
+                        vibrancy()
+                        lens(
+                            refractionHeight = palette.lensRefractionHeight.toPx(),
+                            refractionAmount = palette.lensRefractionAmount.toPx(),
+                            chromaticAberration = false
+                        )
+                    }
+                },
+                // Static: a fixed angle, and colour/alpha that vary only by
+                // theme. Nothing in here changes once the theme is resolved.
+                highlight = if (elevated) {
+                    {
+                        Highlight(
+                            width = palette.highlightWidth,
+                            alpha = palette.specularAlpha,
+                            style = HighlightStyle.Default(
+                                color = palette.specularColor,
+                                angle = HIGHLIGHT_ANGLE_DEG
+                            )
+                        )
+                    }
+                } else null,
+                // Always null: replaced by Modifier.shadow above. The
+                // library's Shadow allocates its own GraphicsLayer and
+                // record()s it every frame at (width + radius*4) by
+                // (height + radius*4) — for the old 12dp radius that is the
+                // card plus 48dp in each dimension — then blurs it with a
+                // mask filter. That is a second offscreen render target and
+                // a second blur per card, per frame, for a drop shadow.
+                shadow = null,
+                // How the library wants glass tinted: over the effects, under
+                // the children, so text stays at full contrast.
+                onDrawSurface = { drawRect(palette.cardTint) }
+            )
+            // Before .clip, not after: `border` strokes centred on the shape's
+            // outline, so a clip *preceding* it would swallow the outer half
+            // and render a 0.75dp rim as an uneven ~0.4dp one. Here the border
+            // node sits outside the clip node, draws its content first and the
+            // stroke over the top, and keeps its full declared width.
+            .border(palette.borderWidth, palette.borderColor, shape)
+            .clip(shape)
+    } else {
+        Modifier
+            .border(palette.borderWidth, palette.borderColor, shape)
+            .clip(shape)
+            .background(palette.cardTint)
+    }
+
+    // key(palette), and not a plain recomposition, is what makes a theme
+    // switch repaint the glass *immediately* rather than on the next touch.
+    // DrawBackdropNode declares `shouldAutoInvalidate = false`, and its
+    // element's `update()` only calls `invalidateDrawCache()` — which
+    // recomputes the RenderEffect but never calls `invalidateDraw()`
+    // (verified by reading the library's own DrawBackdropModifier.kt, not
+    // assumed). So a card whose tint/blur parameters changed keeps replaying
+    // its previously recorded draw until something unrelated invalidates the
+    // layer — which on a real device is the user's next touch. That is
+    // exactly the reported "boxes don't change colour until I interact with
+    // the screen". Re-keying forces `create()` instead of `update()`, and a
+    // brand-new node has nothing stale to replay.
+    //
+    // Cost, stated rather than hidden: this disposes and recreates [content]'s
+    // subtree, so any `rememberSaveable` inside a glass card resets on a theme
+    // change — in this app that means expanded "Advanced" sections collapse.
+    // A rare, deliberate button press trading for a correct repaint.
+    key(palette) {
+        Box(glass.then(modifier)) {
+            content()
+        }
+    }
+}
+
+/**
+ * iOS-style pill switch: a [GlassSurface] track — so it gets the same backdrop
+ * sampling and highlight the cards get, not a flat Material `Switch` — a white
+ * circular thumb, and an animated tint that shifts between
+ * [GlassPalette.switchOffTint] and [GlassPalette.switchOnTint] on check.
+ *
+ * Built on [Modifier.toggleable] rather than Material3's `Switch`: `Switch`
+ * exposes no swappable track slot, only colour tinting, and this needs the
+ * track to be a real glass surface. `toggleable` gives the same
+ * `Role.Switch` accessibility semantics and click target around the fully
+ * custom-drawn shape. Fires the platform toggle haptic itself via
+ * [rememberToggleHaptic] — callers only ever wire `checked`/`onCheckedChange`.
+ *
+ * Track/thumb sizing (51×31 track, 27dp thumb, 2dp inset) matches iOS's own
+ * `UISwitch` intrinsic size.
+ */
+@Composable
+fun GlassSwitch(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val palette = LocalGlassPalette.current
+    val toggleHaptic = rememberToggleHaptic()
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val trackTint by animateColorAsState(
+        targetValue = if (checked) palette.switchOnTint else palette.switchOffTint,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+        label = "glassSwitchTrackTint"
+    )
+    val thumbOffset by animateDpAsState(
+        targetValue = if (checked) {
+            SWITCH_TRACK_WIDTH - SWITCH_THUMB_SIZE - SWITCH_THUMB_INSET
+        } else {
+            SWITCH_THUMB_INSET
+        },
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "glassSwitchThumbOffset"
+    )
+
+    GlassSurface(
+        shape = CircleShape,
+        // Flat, not just non-refractive: this track's own sampled colour is
+        // almost entirely covered by trackTint (0.92 alpha when on, drawn
+        // right below) regardless of what GlassSurface would have shown, so
+        // an independent real backdrop sample here was full shader cost for
+        // something the very next draw call mostly hides. See GlassSurface's
+        // doc comment for the overdraw math this answers.
+        flat = true,
+        modifier = modifier
+            .size(width = SWITCH_TRACK_WIDTH, height = SWITCH_TRACK_HEIGHT)
+            .alpha(if (enabled) 1f else 0.4f)
+            .toggleable(
+                value = checked,
+                interactionSource = interactionSource,
+                indication = null,
+                enabled = enabled,
+                role = Role.Switch,
+                onValueChange = {
+                    toggleHaptic(it)
+                    onCheckedChange(it)
+                }
+            )
+    ) {
+        // Layered on top of GlassSurface's own cardTint, under the thumb:
+        // the on/off colour this control needs is specific to it, not
+        // something every card should carry.
+        Box(Modifier.fillMaxSize().background(trackTint))
+        // offset, not padding: `thumbOffset` is driven by a *bouncy* spring,
+        // which by definition overshoots its target on the way in. Toggling
+        // on overshoots past 22dp, which is harmless; toggling off overshoots
+        // past the 2dp inset and goes briefly negative — and
+        // Modifier.padding throws IllegalArgumentException on a negative Dp,
+        // which is precisely why the app crashed on switching any toggle
+        // *off* and not on. Modifier.offset accepts negative values by
+        // design, so the bounce renders as the intended slight overshoot
+        // instead of a crash.
+        Box(
+            Modifier
+                .offset(x = thumbOffset, y = SWITCH_THUMB_INSET)
+                .size(SWITCH_THUMB_SIZE)
+                .shadow(elevation = 1.5.dp, shape = CircleShape, clip = false)
+                .background(Color.White, CircleShape)
+        )
+    }
+}
+
+private val SWITCH_TRACK_WIDTH = 51.dp
+private val SWITCH_TRACK_HEIGHT = 31.dp
+private val SWITCH_THUMB_SIZE = 27.dp
+private val SWITCH_THUMB_INSET = 2.dp
+
+/**
+ * iOS "Liquid Glass" style slider: a thick glass pill track with a solid
+ * fill up to the current value and a glassy remainder, plus a plain white
+ * circular thumb with a drop shadow.
+ *
+ * Corrected once already: the first version of this composable was built
+ * against `Slider(state=, thumb=, track=)` from androidx's `androidx-main`
+ * dev branch (fetched live, but that branch is ahead of any tagged
+ * release) and against a `rememberSliderState(trackRange=)` that doesn't
+ * exist in this project's actual pinned material3 (1.4.0, per compose-bom
+ * 2025.12.01). Both assumptions were wrong and CI caught it immediately —
+ * a real compiler error, not a guess, is what this version is built from.
+ * The stable 1.4.0 `Slider` has a third overload the dev-branch source
+ * didn't show me: `value=`/`onValueChange=` *combined* with `thumb=`/
+ * `track=` slots, still fully caller-controlled. That removes the whole
+ * problem the first version's `LaunchedEffect` sync existed for — there's
+ * no separate remembered `SliderState` to fall out of sync with `value` in
+ * the first place, since there isn't one; `thumb`/`track` are still handed
+ * a `SliderState` per call for reading `coercedValueAsFraction`, just one
+ * the framework owns internally.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GlassSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onValueChangeFinished: (() -> Unit)? = null
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        valueRange = valueRange,
+        modifier = modifier,
+        enabled = enabled,
+        thumb = { GlassSliderThumb(enabled = enabled) },
+        track = { state -> GlassSliderTrack(state = state, enabled = enabled) }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GlassSliderTrack(state: SliderState, enabled: Boolean) {
+    val fillColor = MaterialTheme.colorScheme.primary
+    val fraction = state.coercedValueAsFraction
+
+    GlassSurface(
+        shape = CircleShape,
+        // Real glass stays on: the unfilled remainder showing genuine
+        // refraction is the whole point of this control, per the original
+        // reference. refractive off (no lens — a dragging track recomposes
+        // every frame, the single worst place to run that shader) and
+        // elevated off (no shadow/highlight — redundant this deep inside an
+        // already-shadowed card) are what it sheds instead. See
+        // GlassSurface's doc comment for why that split, not "flat", is
+        // correct here.
+        refractive = false,
+        elevated = false,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(SLIDER_TRACK_HEIGHT)
+            .alpha(if (enabled) 1f else 0.4f)
+    ) {
+        // Fully opaque, so it completely covers the glass beneath it in the
+        // filled region — that's what makes the fill read as solid colour
+        // while the remainder stays glassy.
+        Box(
+            Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .background(fillColor)
+        )
+    }
+}
+
+@Composable
+private fun GlassSliderThumb(enabled: Boolean) {
+    // Deliberately larger than the track (32dp thumb on a 28dp track) —
+    // Slider's layout measures and positions the thumb slot independently
+    // of the track's own bounds, so an oversized thumb isn't clipped.
+    Box(
+        Modifier
+            .alpha(if (enabled) 1f else 0.4f)
+            .size(SLIDER_THUMB_SIZE)
+            .shadow(elevation = 3.dp, shape = CircleShape, clip = false)
+            .background(Color.White, CircleShape)
+    )
+}
+
+private val SLIDER_TRACK_HEIGHT = 28.dp
+private val SLIDER_THUMB_SIZE = 32.dp
+
+/**
+ * The backdrop every glass card samples: an opaque base plus four or five soft,
+ * overlapping radial blobs — a mesh gradient — and nothing else.
+ *
+ * It is deliberately motionless. There is no animation driving it, no sensor
+ * read anywhere in this file, and no scroll value reaching it: the blob set
+ * comes straight out of [GlassPalette.meshBlobs], which is fixed data resolved
+ * once per theme. The glass effect is demonstrated by the cards moving over
+ * this field as the panel scrolls, so the field itself staying put is the
+ * whole point — it is the fixed reference the refraction distorts against.
+ *
+ * Drawn as a sibling *behind* the scrolling content, never inside the scroll
+ * container, so scrolling moves the cards across it rather than dragging it
+ * along with them. This is the same structural rule the dot grid and the plain
+ * gradient before it were held to.
+ *
+ * Cost is one full-screen opaque `drawRect` plus five radial-gradient
+ * `drawRect`s clipped to each blob's own bounding square — not full-screen —
+ * against the ~1700 `drawCircle` calls the dot-grid version needed. That clip
+ * is deliberate, not incidental: an earlier version painted every blob across
+ * the entire canvas regardless of how little of it the gradient actually
+ * reached, which an on-device GPU overdraw capture showed as 4x+ (red) across
+ * the whole screen. It also lands in the captured backdrop layer, which only
+ * re-records when something invalidates it, so none of this is paid again
+ * per scroll frame.
+ *
+ * This paints its own opaque base — [GlassPalette.backgroundBase], not
+ * MaterialTheme's background — rather than letting the Surface behind it show
+ * through: the backdrop layer captures only what this composable draws, and a
+ * transparent capture would leave the glass sampling nothing.
+ */
+@Composable
+fun MeshGradientBackground(modifier: Modifier = Modifier) {
+    val palette = LocalGlassPalette.current
+
     Box(
         modifier
-            .clip(shape)
-            .let { base ->
-                if (hazeState != null) {
-                    base.hazeChild(
-                        state = hazeState,
-                        shape = shape,
-                        style = HazeDefaults.style(
-                            backgroundColor = palette.cardTint,
-                            tint = palette.cardTint,
-                            blurRadius = palette.cardBackdropBlurRadius,
-                            noiseFactor = palette.noiseFactor
-                        )
+            .fillMaxSize()
+            .drawBehind {
+                drawRect(palette.backgroundBase)
+
+                // Radius is a fraction of the *longest* side so a blob keeps
+                // its shape relative to the screen rather than stretching with
+                // the aspect ratio.
+                val longestSide = size.maxDimension
+
+                palette.meshBlobs.forEach { blob ->
+                    val peak = blob.color
+                    val center = Offset(
+                        x = size.width * blob.centerX,
+                        y = size.height * blob.centerY
                     )
-                } else {
-                    base.background(palette.cardTint)
+                    val radius = longestSide * blob.radiusFraction
+
+                    // Constrained to the blob's own bounding square instead of
+                    // the old fillMaxSize() drawRect. The shader's centre/
+                    // radius above are in absolute canvas coordinates, so this
+                    // only crops which pixels get painted — identical output —
+                    // but it is what took a GPU overdraw capture from red
+                    // (4x+) across the whole screen to roughly 1x outside the
+                    // blob overlaps: previously every one of the 5 blobs
+                    // painted the *entire* screen, alpha-blending a fully
+                    // transparent outer ring over areas the gradient never
+                    // visibly reaches at all.
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            // Four stops, not two: a straight colour-to-
+                            // transparent ramp falls off linearly and leaves a
+                            // visible disc edge. Front-loading the decay keeps
+                            // the centre solid and lets the rim vanish.
+                            0f to peak,
+                            0.35f to peak.copy(alpha = peak.alpha * 0.62f),
+                            0.70f to peak.copy(alpha = peak.alpha * 0.22f),
+                            1f to Color.Transparent,
+                            center = center,
+                            radius = radius
+                        ),
+                        topLeft = center - Offset(radius, radius),
+                        size = Size(radius * 2f, radius * 2f)
+                    )
                 }
             }
-            .border(1.dp, palette.borderColor, shape)
-    ) {
-        SpecularOverlay(Modifier.matchParentSize())
-        content()
-    }
-}
-
-/**
- * A soft light gradient that shifts slightly with the same tilt reading that
- * drives the fold effect (FoldEchoState.tiltUpDeg/tiltRightDeg), so glass
- * surfaces read as reactive rather than a static image. Movement is small
- * and spring-eased — meant to be felt more than consciously noticed.
- */
-@Composable
-private fun SpecularOverlay(modifier: Modifier = Modifier) {
-    val palette = LocalGlassPalette.current
-    val tiltUp by FoldEchoState.tiltUpDeg.collectAsState()
-    val tiltRight by FoldEchoState.tiltRightDeg.collectAsState()
-
-    val fracX by animateFloatAsState(
-        targetValue = (tiltRight / 45f).coerceIn(-1f, 1f) * 0.18f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "specularX"
     )
-    val fracY by animateFloatAsState(
-        targetValue = (-tiltUp / 45f).coerceIn(-1f, 1f) * 0.18f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "specularY"
-    )
-
-    Box(
-        modifier.drawWithCache {
-            val brush = Brush.radialGradient(
-                colors = listOf(palette.specularColor.copy(alpha = palette.specularAlpha), Color.Transparent),
-                center = Offset(size.width * (0.5f + fracX), size.height * (0.35f + fracY)),
-                radius = size.maxDimension * 0.7f
-            )
-            onDrawBehind { drawRect(brush) }
-        }
-    )
-}
-
-/**
- * Slow, continuous drift behind the whole screen so the backdrop blur on
- * glass cards always has visible motion to blur, not just when the phone is
- * tilted. Independent of the tilt sensor entirely — this loops forever.
- */
-@Composable
-fun AmbientBackground(modifier: Modifier = Modifier) {
-    val palette = LocalGlassPalette.current
-    val transition = rememberInfiniteTransition(label = "ambient")
-    val shapes = palette.ambientColors.mapIndexed { index, color ->
-        val period = 14_000 + index * 3_000
-        val dx by transition.animateFloat(
-            initialValue = -1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "ambientDx$index"
-        )
-        val dy by transition.animateFloat(
-            initialValue = -1f,
-            targetValue = 1f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(period + 2_000, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "ambientDy$index"
-        )
-        Triple(color, dx, dy)
-    }
-
-    Box(modifier.fillMaxSize()) {
-        shapes.forEachIndexed { index, (color, dx, dy) ->
-            val baseX = if (index % 2 == 0) 0.15f else 0.75f
-            val baseY = if (index < 2) 0.2f else 0.75f
-            Box(
-                Modifier
-                    .size(220.dp)
-                    .offset(
-                        x = (baseX * 300 + dx * 60).dp,
-                        y = (baseY * 500 + dy * 60).dp
-                    )
-                    .clip(CircleShape)
-                    .background(color.copy(alpha = 0.35f))
-                    .blur(90.dp)
-            )
-        }
-    }
 }
 
 /** A spring-based ~0.95x press-down, for elements that build their own click handling (so they can share one [InteractionSource] between the scale and the actual click). */

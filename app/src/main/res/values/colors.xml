@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Both schemes named explicitly, so MainActivity can pin the window to
+         whichever one the ThemeMode preference resolves to — resource
+         qualifiers alone can only follow the system night setting.
+         Each is GlassPalette.backgroundBase (Glass.kt) — the opaque base the
+         mesh gradient paints before any blob — which is also what
+         MaterialTheme.colorScheme.background is set to. One true app
+         background per theme, so there is no seam where the window drawable
+         meets the first frame Compose draws, and none behind the now
+         transparent system bars either. -->
+    <color name="window_background_light">#FFFBF8F3</color>
+    <color name="window_background_dark">#FF05060A</color>
+
+    <!-- What the manifest theme uses before onCreate runs: follows the system,
+         which is correct for ThemeMode.SYSTEM and corrected in onCreate otherwise.
+         Matches FoldEchoLightColors.background in MainActivity. -->
+    <color name="window_background">#FFFBF8F3</color>
+</resources>

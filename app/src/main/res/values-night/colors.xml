@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches FoldEchoDarkColors.background in MainActivity, unified with
+         GlassPalette.backgroundBase (Glass.kt). -->
+    <color name="window_background">#FF05060A</color>
+</resources>
