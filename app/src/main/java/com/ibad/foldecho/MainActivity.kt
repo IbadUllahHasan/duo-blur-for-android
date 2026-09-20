@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -1052,19 +1053,36 @@ private fun InfoTooltip(text: String, glyph: String = "i") {
                 onDismissRequest = { expanded = false },
                 properties = PopupProperties(
                     focusable = false,
-                    // The one real bug: this defaults to true, which sizes
-                    // the underlying popup window to the platform's default
-                    // dialog width — on a phone, that is the full screen.
-                    // The bubble itself was always wrapContentSize and never
-                    // grew, but with the window behind it stretched edge to
-                    // edge, outside taps mostly landed *inside* that oversized
-                    // window and never reached onDismissRequest — one bug
-                    // explaining both the width and the "won't close" report.
+                    // Kept, but this was never the actual bug — corrected
+                    // below. Popup content is measured with AT_MOST
+                    // constraints against the full screen width regardless of
+                    // this flag (verified against AndroidPopup.android.kt);
+                    // it only affects the window's *starting* LayoutParams,
+                    // which get overridden to match the measured content size
+                    // right after anyway. Left false since it's the more
+                    // correct setting for a compact popup, but it fixes
+                    // nothing on its own.
                     usePlatformDefaultWidth = false
                 )
             ) {
                 Box(
                     modifier = Modifier
+                        // The real bug: Text has no built-in "stay narrow"
+                        // behaviour. Given up to the full screen's AT_MOST
+                        // width to work with, a multi-line paragraph fills
+                        // that width with one long wrapped line before
+                        // breaking, instead of wrapping into a compact block
+                        // — and wrapContentSize() on this Box just reports
+                        // whatever size that Text decided on, which was
+                        // "nearly full screen". Capping the width forces the
+                        // Text to actually wrap narrow, which is what makes
+                        // this a small bubble instead of a banner — and once
+                        // the popup's real measured width shrinks to this,
+                        // onDismissRequest's outside-tap check (which compares
+                        // against the view's actual width/height) starts
+                        // working too, as a direct consequence of the same
+                        // fix rather than a separate one.
+                        .widthIn(max = 240.dp)
                         .wrapContentSize()
                         .clip(RoundedCornerShape(GlassRadii.chip))
                         .background(MaterialTheme.colorScheme.inverseSurface)
