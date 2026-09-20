@@ -33,6 +33,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -56,19 +57,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -80,16 +76,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -993,24 +993,73 @@ private fun AdvancedSection(title: String = "Advanced", content: @Composable () 
     }
 }
 
-/** A floating "i"/"?" dot that opens a real Material3 tooltip popover on long-press, instead of a permanent subtitle. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * A floating "i"/"?" dot that opens its help text on a single tap, with the
+ * same interface-tick haptic every slider fires on release.
+ *
+ * Not built on Material3's `TooltipBox`: that trigger is long-press by
+ * design (the doc comment here used to say so approvingly, before this was
+ * reported as a defect), and `TooltipBox` does not publicly expose a way to
+ * turn that off — the one parameter that looked like it
+ * (`BasicTooltipBox`'s `enableUserInput`) lives one layer down in
+ * `foundation`, isn't forwarded by material3's `TooltipBox`, and doesn't
+ * appear in any released material3 API surface checked for this fix, so it
+ * would have been betting on an unreleased signature — exactly the mistake
+ * this session already made twice with this library. `Popup` and
+ * `Modifier.clickable`, used directly, sidestep the question entirely: both
+ * have been stable, unchanged public API for years, so there is nothing here
+ * to get wrong against a specific pinned version.
+ *
+ * `onDismissRequest` is `Popup`'s own long-standing behaviour, not something
+ * wired up by hand — a tap outside the bubble or the system back gesture both
+ * close it via [PopupProperties]'s defaults.
+ */
 @Composable
 private fun InfoTooltip(text: String, glyph: String = "i") {
-    val tooltipState = rememberTooltipState()
-    TooltipBox(
-        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-        tooltip = { PlainTooltip { Text(text) } },
-        state = tooltipState
-    ) {
+    val haptics = LocalHaptics.current
+    val uiHapticsEnabled = LocalUiHapticsEnabled.current
+    val interactionSource = remember { MutableInteractionSource() }
+    var expanded by remember { mutableStateOf(false) }
+    // Popup's own `offset` is raw pixels, not Dp — passing a bare dp-sized
+    // int there would be a near-invisible gap on any high-density screen.
+    val gapPx = with(LocalDensity.current) { 8.dp.roundToPx() }
+
+    Box {
         Box(
             modifier = Modifier
                 .size(18.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .clickable(interactionSource = interactionSource, indication = null) {
+                    if (uiHapticsEnabled) haptics?.interfaceTick()
+                    expanded = !expanded
+                },
             contentAlignment = Alignment.Center
         ) {
             Text(glyph, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        if (expanded) {
+            Popup(
+                alignment = Alignment.BottomCenter,
+                offset = IntOffset(0, gapPx),
+                onDismissRequest = { expanded = false },
+                properties = PopupProperties(focusable = false)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .wrapContentSize()
+                        .clip(RoundedCornerShape(GlassRadii.chip))
+                        .background(MaterialTheme.colorScheme.inverseSurface)
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.inverseOnSurface
+                    )
+                }
+            }
         }
     }
 }
