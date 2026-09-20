@@ -63,16 +63,6 @@ object GlassRadii {
 }
 
 /**
- * Every value here is deliberately separate for light and dark — a
- * translucency/tint pair that reads correctly on a dark backdrop washes out
- * or muddies on a light one. Named `cardBackdropBlurRadius`, not "blur",
- * so it never collides with the Blur effect group's own parameters.
- *
- * No border colour: a uniform stroke around the whole shape is what reads as
- * a flat sticker outline rather than glass. The rim is carried entirely by
- * the highlight now — see [GlassSurface].
- */
-/**
  * One radial blob of [MeshGradientBackground]. Position and radius are
  * *fractions*, not absolute pixels, so one palette describes the same
  * composition on any screen size: [centerX]/[centerY] are fractions of the
@@ -90,6 +80,16 @@ data class MeshBlob(
     val color: Color
 )
 
+/**
+ * Every value here is deliberately separate for light and dark — a
+ * translucency/tint pair that reads correctly on a dark backdrop washes out
+ * or muddies on a light one. Named `cardBackdropBlurRadius`, not "blur",
+ * so it never collides with the Blur effect group's own parameters.
+ *
+ * No border colour: a uniform stroke around the whole shape is what reads as
+ * a flat sticker outline rather than glass. The rim is carried entirely by
+ * the highlight now — see [GlassSurface].
+ */
 data class GlassPalette(
     val cardTint: Color,
     val cardBackdropBlurRadius: Dp,
@@ -219,46 +219,67 @@ private const val HIGHLIGHT_ANGLE_DEG = 45f
  * it, plus a fixed specular highlight. [content] still owns its own padding —
  * this only draws the surface itself.
  *
- * ### Why [refractive] exists
+ * ### What the three flags actually cost, and what each buys
  *
- * Every `drawBackdrop` call is its own offscreen layer plus an AGSL shader
- * pass per frame. That is affordable for the handful of cards it was designed
- * for; it is not affordable once every switch track and every slider track is
- * also one, which is what the previous change made them — roughly thirty
- * shader-backed surfaces on one scrolling screen, and the direct cause of the
- * "laggy/sluggish overall" report. Small controls therefore pass
- * `refractive = false` and get blur only: one pass instead of two, and no lens
- * distortion, which at a 28–31dp control height was sub-pixel anyway. They
- * still sample the real backdrop, so the "same blur thingy" the controls were
- * asked for is intact — it is the part that was costing frames without being
- * visible that is gone.
+ * A real, on-device GPU overdraw capture (not the raw surface count guessed
+ * at previously) showed the true picture: every `GlassSurface` stacks up to
+ * four translucent full-area draws (shadow, the blurred backdrop-sample
+ * layer, the tint fill, the border), and small controls are *nested inside*
+ * a card that already paints that same four-layer stack — so the pixels
+ * under, say, the "Flip tilt direction" switch were getting drawn on the
+ * order of eight to ten times a frame, not four. That is what "the whole
+ * page is red" actually was: nesting depth at shared pixels, which a fix to
+ * the mesh background alone (a separate, real, but much smaller contributor)
+ * could not touch. It is also most of the scroll smoothness cost: the
+ * backdrop library's `LayerBackdrop.isCoordinatesDependent = true` means
+ * every one of those stacked surfaces re-samples and re-runs its RenderEffect
+ * on every frame a card's on-screen position changes, i.e. every scroll
+ * frame — confirmed by reading the library's own `DrawBackdropModifier.kt`.
+ * More stacked surfaces means more of that cost paid per frame while
+ * scrolling, not just more static overdraw.
+ *
+ * [refractive] (default on) gates `vibrancy()` and `lens()` — the two
+ * effects that make a card read as colour-saturated, bending glass rather
+ * than a plain frosted pane. Off for anything that does not need to visibly
+ * refract: a 28–31dp control's lens distortion was sub-pixel anyway.
+ *
+ * [elevated] (default on) gates `shadow` and `highlight` — the drop shadow
+ * and specular rim that make a card read as raised off the page. Both are
+ * real, separate modifier nodes and real, separate draws. A control nested
+ * inside an already-shadowed, already-rimmed card does not need its own
+ * copy of either, so small controls turn this off — two fewer stacked
+ * layers at exactly the pixels that were reading deepest red.
+ *
+ * [flat] (default off) skips the backdrop pipeline entirely — no blur, no
+ * shadow, no highlight, just the tint and border every surface gets either
+ * way. [GlassSwitch] uses this: its track's own sampled colour is almost
+ * entirely covered by the near-opaque [GlassPalette.switchOnTint]/
+ * `switchOffTint` overlay drawn on top of it regardless, so an independent
+ * real backdrop sample there was paying full shader cost for something the
+ * next draw call mostly hides. [GlassSlider]'s track deliberately does *not*
+ * use this — its unfilled portion is the whole point of "a glassy
+ * remainder" from the original reference, so it keeps [refractive] off and
+ * [elevated] off, but stays real glass.
  *
  * `chromaticAberration` stays off everywhere: it triples the lens shader's
- * per-pixel sample count, and it existed for the old dot grid's accent dots to
- * split into colour at the refraction rim. That is a real cost for a rim
- * effect, worth reconsidering if the mesh's colour needs to visibly fringe at
- * a card's edge later, but not turned on speculatively here.
- *
- * `vibrancy()` — a saturation boost over the sampled layer — is back, but
- * gated on [refractive] alongside `lens`, not dropped outright: real
- * screenshots against the mesh gradient background showed cards reading as
- * flat and washed-out rather than glassy, and vibrancy is what makes the
- * blurred, overlapping blob colours underneath read as saturated glass
- * instead of a grey smear. It only runs on the handful of refractive cards,
- * not the ~30 small controls this whole [refractive] split exists to keep
- * cheap, so it does not reopen the performance issue it was cut for.
+ * per-pixel sample count, and it existed for the old dot grid's accent dots
+ * to split into colour at the refraction rim. Worth reconsidering later if
+ * the mesh's colour needs to visibly fringe at a card's edge, not turned on
+ * speculatively here.
  */
 @Composable
 fun GlassSurface(
     shape: Shape = RoundedCornerShape(GlassRadii.card),
     modifier: Modifier = Modifier,
     refractive: Boolean = true,
+    elevated: Boolean = true,
+    flat: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val backdrop = LocalBackdrop.current
     val palette = LocalGlassPalette.current
 
-    val glass = if (backdrop != null) {
+    val glass = if (backdrop != null && !flat) {
         Modifier
             .drawBackdrop(
                 backdrop = backdrop,
@@ -276,19 +297,21 @@ fun GlassSurface(
                 },
                 // Static: a fixed angle, and colour/alpha that vary only by
                 // theme. Nothing in here changes once the theme is resolved.
-                highlight = {
-                    Highlight(
-                        width = palette.highlightWidth,
-                        alpha = palette.specularAlpha,
-                        style = HighlightStyle.Default(
-                            color = palette.specularColor,
-                            angle = HIGHLIGHT_ANGLE_DEG
+                highlight = if (elevated) {
+                    {
+                        Highlight(
+                            width = palette.highlightWidth,
+                            alpha = palette.specularAlpha,
+                            style = HighlightStyle.Default(
+                                color = palette.specularColor,
+                                angle = HIGHLIGHT_ANGLE_DEG
+                            )
                         )
-                    )
-                },
-                shadow = {
-                    Shadow(radius = 12.dp, color = Color.Black.copy(alpha = 0.15f))
-                },
+                    }
+                } else null,
+                shadow = if (elevated) {
+                    { Shadow(radius = 12.dp, color = Color.Black.copy(alpha = 0.15f)) }
+                } else null,
                 // How the library wants glass tinted: over the effects, under
                 // the children, so text stays at full contrast.
                 onDrawSurface = { drawRect(palette.cardTint) }
@@ -375,7 +398,13 @@ fun GlassSwitch(
 
     GlassSurface(
         shape = CircleShape,
-        refractive = false,
+        // Flat, not just non-refractive: this track's own sampled colour is
+        // almost entirely covered by trackTint (0.92 alpha when on, drawn
+        // right below) regardless of what GlassSurface would have shown, so
+        // an independent real backdrop sample here was full shader cost for
+        // something the very next draw call mostly hides. See GlassSurface's
+        // doc comment for the overdraw math this answers.
+        flat = true,
         modifier = modifier
             .size(width = SWITCH_TRACK_WIDTH, height = SWITCH_TRACK_HEIGHT)
             .alpha(if (enabled) 1f else 0.4f)
@@ -470,10 +499,16 @@ private fun GlassSliderTrack(state: SliderState, enabled: Boolean) {
 
     GlassSurface(
         shape = CircleShape,
-        // Blur only — see GlassSurface's doc comment. A dragging slider
-        // recomposes its track every frame, so this is the single worst place
-        // in the app to run a lens pass.
+        // Real glass stays on: the unfilled remainder showing genuine
+        // refraction is the whole point of this control, per the original
+        // reference. refractive off (no lens — a dragging track recomposes
+        // every frame, the single worst place to run that shader) and
+        // elevated off (no shadow/highlight — redundant this deep inside an
+        // already-shadowed card) are what it sheds instead. See
+        // GlassSurface's doc comment for why that split, not "flat", is
+        // correct here.
         refractive = false,
+        elevated = false,
         modifier = Modifier
             .fillMaxWidth()
             .height(SLIDER_TRACK_HEIGHT)
