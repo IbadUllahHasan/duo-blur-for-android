@@ -1104,22 +1104,27 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
 /**
  * One segment of the Ray-traced/Classic control.
  *
- * Audit result, since this was asked as a question: the label colour was
- * **not** hardcoded. It already read `onPrimary` when selected and
- * `onSurfaceVariant` when not, both straight off `MaterialTheme.colorScheme`.
- * The illegibility came from the *value* those roles resolve to, not from
- * bypassing the theme. `onSurfaceVariant` is Apple's `secondaryLabel`
- * (#3C3C43 at 60% alpha at the time the light-mode screenshot was taken),
- * which is a deliberately de-emphasised role — fine for a caption under a
- * heading, wrong for one of two tappable labels that must be read at 13sp,
- * and worse once the card tint underneath it dropped to let the mesh through.
+ * Second bug in this control, found the same way as the first — by reading
+ * the actual resolved values, not assuming a fix landed because it compiled.
+ * The previous round moved the unselected label from `onSurfaceVariant` to
+ * `onSurface` specifically so selected/unselected weren't two shades of the
+ * same colour. That works in light mode by coincidence: `onPrimary` (the
+ * selected colour, white) and `onSurface` (the unselected colour, black) are
+ * genuinely different there. In dark mode they are not — `FoldEchoDarkColors`
+ * sets both `onPrimary` and `onSurface` to the same pure `#FFFFFFFF`. Once
+ * the pill's own contrast against the glass card was the only thing carrying
+ * the distinction, and font-weight alone didn't read as strongly as intended,
+ * "which one is selected" stopped being answerable in dark mode — exactly
+ * the report.
  *
- * The unselected segment now uses `onSurface` — the full-strength label role,
- * pure #000000 in light and #FFFFFF in dark — so neither state is a dimmed
- * variant of anything. Weight carries the selected/unselected distinction
- * instead of opacity, which is what iOS's own segmented control does, and the
- * colour crossfades on the same spring the sliding indicator uses so the label
- * does not flip to white before the blue pill has arrived under it.
+ * Fixed by not depending on two roles happening to differ: unselected now
+ * dims `onSurface` with its own alpha (`0.62`) rather than swapping to a
+ * different role. That is a real, theme-independent brightness difference
+ * from the selected label's full-opacity `onPrimary` in *every* theme, not
+ * one that depends on `onPrimary` and `onSurface` resolving to different
+ * colours — the exact assumption that broke in dark mode. Weight still
+ * reinforces it (SemiBold selected, Medium unselected), and the colour still
+ * crossfades on the same spring the sliding indicator uses.
  */
 @Composable
 private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
@@ -1131,7 +1136,12 @@ private fun ModeOption(label: String, selected: Boolean, modifier: Modifier = Mo
         targetValue = if (selected) {
             MaterialTheme.colorScheme.onPrimary
         } else {
-            MaterialTheme.colorScheme.onSurface
+            // Dimmed, not a different role — see the doc comment above:
+            // onSurface itself is the same white as onPrimary in dark mode,
+            // so the distinction has to come from opacity, not hue, and has
+            // to work that way in every theme rather than happening to work
+            // in one of them.
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
         },
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessLow),
         label = "modeOptionForeground"
