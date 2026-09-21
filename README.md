@@ -1,4 +1,7 @@
-# DuoFlow
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="wordmark-dark.svg">
+  <img src="wordmark-light.svg" alt="DuoFlow" width="280">
+</picture>
 
 **Make any Android phone do the iPhone Fold hinge animation.** Tilt your phone
 and whatever's on screen freezes into a leaning, blurring snapshot, then
