@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="64" viewBox="0 0 280 64" role="img" aria-label="DuoFlow">
+  <defs>
+    <filter id="b0" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation="0"/></filter>
+    <filter id="b1" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation="0.6"/></filter>
+    <filter id="b2" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation="1.2"/></filter>
+    <filter id="b3" x="-5%" y="-30%" width="110%" height="160%"><feGaussianBlur stdDeviation="1.8"/></filter>
+  </defs>
+  <text x="0" y="46" fill="#000000" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="600">Duo</text>
+  <text x="80" y="46" fill="#007AFF" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="600" filter="url(#b0)">F</text>
+  <text x="106" y="46" fill="#007AFF" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="600" filter="url(#b1)">l</text>
+  <text x="119" y="46" fill="#007AFF" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="600" filter="url(#b2)">o</text>
+  <text x="144" y="46" fill="#007AFF" font-family="-apple-system, system-ui, 'Segoe UI', Roboto, sans-serif" font-size="40" font-weight="600" filter="url(#b3)">w</text>
+</svg>
