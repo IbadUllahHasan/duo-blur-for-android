@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
@@ -437,7 +440,10 @@ fun GlassSwitch(
         // something the very next draw call mostly hides. See GlassSurface's
         // doc comment for the overdraw math this answers.
         flat = true,
+        // Visual track stays 51×31; minimum 48dp touch target for a11y (issue #6)
         modifier = modifier
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .wrapContentSize(Alignment.Center)
             .size(width = SWITCH_TRACK_WIDTH, height = SWITCH_TRACK_HEIGHT)
             .alpha(if (enabled) 1f else 0.4f)
             .toggleable(
