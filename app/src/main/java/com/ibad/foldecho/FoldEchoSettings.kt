@@ -79,6 +79,16 @@ data class Tunables(
     /** App UI colour scheme. Purely cosmetic — no bearing on the fold effect itself. */
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
 
+    /**
+     * Real backdrop refraction/blur/shadow for every card, switch, and slider
+     * track — vs. a flat tinted surface for all of them. Purely cosmetic/
+     * performance, no bearing on the fold effect. Defaults on; the escape
+     * hatch exists because backdrop sampling is genuinely GPU-heavy and some
+     * devices feel it as lag, which no amount of in-app tuning can fully
+     * mask across every GPU this runs on.
+     */
+    val glassEffectsEnabled: Boolean = true,
+
     /** In-app UI feedback only (slider drags, switches) — no bearing on the fold effect itself. */
     val uiHapticsEnabled: Boolean = true,
 
@@ -130,6 +140,7 @@ object FoldEchoSettings {
     private const val KEY_MAX_DARKEN_ENABLED = "max_darken_enabled"
     private const val KEY_FLIP = "flip_tilt_direction"
     private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_GLASS_EFFECTS_ENABLED = "glass_effects_enabled"
     private const val KEY_UI_HAPTICS_ENABLED = "ui_haptics_enabled"
     private const val KEY_BLUR_HAPTICS_ENABLED = "blur_haptics_enabled"
     private const val KEY_BLUR_HAPTICS_ENGAGE_STRENGTH = "blur_haptics_engage_strength"
@@ -176,6 +187,7 @@ object FoldEchoSettings {
             maxDarkenEnabled = prefs.getBoolean(KEY_MAX_DARKEN_ENABLED, defaults.maxDarkenEnabled),
             flipTiltDirection = prefs.getBoolean(KEY_FLIP, defaults.flipTiltDirection),
             themeMode = readThemeMode(prefs, defaults.themeMode),
+            glassEffectsEnabled = prefs.getBoolean(KEY_GLASS_EFFECTS_ENABLED, defaults.glassEffectsEnabled),
             uiHapticsEnabled = prefs.getBoolean(KEY_UI_HAPTICS_ENABLED, defaults.uiHapticsEnabled),
             blurHapticsEnabled = prefs.getBoolean(KEY_BLUR_HAPTICS_ENABLED, defaults.blurHapticsEnabled),
             blurHapticsEngageStrength = prefs.getFloat(KEY_BLUR_HAPTICS_ENGAGE_STRENGTH, defaults.blurHapticsEngageStrength),
@@ -219,6 +231,7 @@ object FoldEchoSettings {
             .putBoolean(KEY_MAX_DARKEN_ENABLED, tunables.maxDarkenEnabled)
             .putBoolean(KEY_FLIP, tunables.flipTiltDirection)
             .putString(KEY_THEME_MODE, tunables.themeMode.name)
+            .putBoolean(KEY_GLASS_EFFECTS_ENABLED, tunables.glassEffectsEnabled)
             .putBoolean(KEY_UI_HAPTICS_ENABLED, tunables.uiHapticsEnabled)
             .putBoolean(KEY_BLUR_HAPTICS_ENABLED, tunables.blurHapticsEnabled)
             .putFloat(KEY_BLUR_HAPTICS_ENGAGE_STRENGTH, tunables.blurHapticsEngageStrength)
