@@ -172,9 +172,11 @@ expected, what happened. Screenshots or a screen recording help.
 - Requires Android 12 (API 31) or newer. Ray-traced mode additionally
   requires Android 13 (API 33) and may fall back to classic mode on some
   devices whose GPU driver rejects the AGSL shader.
-- Shows the system's screen-recording indicator for as long as the feature
-  is enabled, not just during a tilt — the cost of keeping one capture
-  session open instead of re-prompting for consent on every gesture.
+- Shows a persistent screen-recording indicator on Android 12+ for as long
+  as the feature is enabled, not just during a tilt — the cost of keeping one
+  capture session open instead of re-prompting for consent on every gesture.
+  Android 11 and earlier have no recording indicator for MediaProjection,
+  so users on those versions don't see this at all.
 - Apps that set `FLAG_SECURE` (banking, Netflix, password managers) capture
   as black, not blurred — an Android-wide protection with no workaround from
   here.
