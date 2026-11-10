@@ -124,10 +124,15 @@ and a distinct triple-tick if the 8-second safety auto-release fires because
 a gesture was held too long. All three have independent on/off switches in
 the Haptics card.
 
-The theme toggle (top-right of the panel) cycles the app's own colour scheme
-between **System** (follows the device), **Light**, and **Dark**. The two
-pinned modes are separate materials, not one palette relit — glass opacity,
-tint and the specular highlight all differ between them.
+The glass-effects toggle (✦, top-right of the panel, next to theme) turns the
+app UI's liquid-glass backdrop refraction on or off. Off falls back to flat
+tinted cards — cheaper to scroll on devices where the glass pipeline lags.
+It only affects the settings UI, not the fold blur itself.
+
+The theme toggle beside it cycles the app's own colour scheme between
+**System** (follows the device), **Light**, and **Dark**. The two pinned
+modes are separate materials, not one palette relit — glass opacity, tint
+and the specular highlight all differ between them.
 
 Full parameter reference, what each slider actually does, and the things
 that were investigated and can't be done live in
