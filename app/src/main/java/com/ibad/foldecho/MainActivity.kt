@@ -80,6 +80,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
@@ -196,7 +197,7 @@ class MainActivity : ComponentActivity() {
                     CompositionLocalProvider(
                         LocalContentColor provides MaterialTheme.colorScheme.onBackground
                     ) {
-                        GlassScene { scrollState ->
+                        GlassScene(glassEnabled = tunables.glassEffectsEnabled) { scrollState ->
                             ControlPanel(
                                 scrollState = scrollState,
                                 running = running,
@@ -341,17 +342,38 @@ class MainActivity : ComponentActivity() {
  * LayerBackdrop draws the sampled layer inside the card's own draw scope
  * instead, so card and backdrop transform together whatever the scroller does,
  * and that bug cannot recur here.
+ *
+ * [glassEnabled] is the performance escape hatch: every `GlassSurface` in the
+ * tree already falls back to a flat tint+border (no blur, no shadow, no
+ * offscreen render target) whenever [LocalBackdrop] is null — that path
+ * exists for the pre-first-frame/no-backdrop-yet case, and it's exactly the
+ * cheap rendering a "turn glass off" setting needs, for free. So disabling
+ * glass here means literally handing every card `null` instead of a real
+ * backdrop, rather than threading a flag through every composable that draws
+ * one. The mesh background itself is left alone either way — it's already
+ * cheap (one clipped opaque fill plus five clipped radial gradients, captured
+ * once and not re-paid per frame) — but capturing it into a layer nothing
+ * will sample is pointless work, so that capture is skipped too.
  */
 @Composable
-private fun GlassScene(content: @Composable (ScrollState) -> Unit) {
+private fun GlassScene(glassEnabled: Boolean, content: @Composable (ScrollState) -> Unit) {
     val scrollState = rememberScrollState()
     // One backdrop for the whole screen, remembered here at the scaffold and
     // handed down: every card samples this same captured layer. Creating one
-    // per card would discard the capture on each recomposition.
-    val backdrop = rememberLayerBackdrop()
+    // per card would discard the capture on each recomposition. Always
+    // remembered, even with glass off — a composable call has to run
+    // unconditionally on every recomposition for its remembered state to
+    // behave predictably; only whether it's *handed out* below is
+    // conditional.
+    val layerBackdrop = rememberLayerBackdrop()
+    val backdrop = if (glassEnabled) layerBackdrop else null
 
     Box(Modifier.fillMaxSize()) {
-        MeshGradientBackground(Modifier.fillMaxSize().layerBackdrop(backdrop))
+        MeshGradientBackground(
+            Modifier
+                .fillMaxSize()
+                .then(if (glassEnabled) Modifier.layerBackdrop(layerBackdrop) else Modifier)
+        )
         CompositionLocalProvider(LocalBackdrop provides backdrop) {
             content(scrollState)
         }
@@ -575,10 +597,16 @@ private fun ControlPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            ThemeToggleButton(
-                mode = tunables.themeMode,
-                onModeChange = { onTunablesChange(tunables.copy(themeMode = it)) }
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                GlassEffectsToggleButton(
+                    enabled = tunables.glassEffectsEnabled,
+                    onToggle = { onTunablesChange(tunables.copy(glassEffectsEnabled = it)) }
+                )
+                ThemeToggleButton(
+                    mode = tunables.themeMode,
+                    onModeChange = { onTunablesChange(tunables.copy(themeMode = it)) }
+                )
+            }
         }
 
         Spacer(Modifier.height(20.dp))
@@ -1139,8 +1167,59 @@ private fun glyphFor(mode: ThemeMode): String = when (mode) {
 }
 
 /**
- * Small circular glass button, trailing element of the header row —
- * replaces the old three-way Appearance pill. Cycles ThemeMode in the
+ * Small circular glass button, leading the [ThemeToggleButton] pair in the
+ * header — the performance escape hatch for [Tunables.glassEffectsEnabled].
+ *
+ * Deliberately no icon-morph animation the way [ThemeToggleButton] has one:
+ * the glyph here is static, and the button's *own chrome* is what shows the
+ * state, since this is itself a [GlassSurface] — flip the setting off and
+ * this button goes flat right along with every card, switch, and slider on
+ * screen, which is a more honest demonstration of "glass is off" than an
+ * icon swap would be. The glyph dims to match, the same `0.4f` alpha
+ * [GlassSwitch]/[GlassSlider] already use for a disabled control.
+ *
+ * A genuine boolean, unlike [ThemeToggleButton]'s faked one from a 3-way
+ * cycle — so this fires [rememberToggleHaptic] with the real value rather
+ * than a derived signal.
+ */
+@Composable
+private fun GlassEffectsToggleButton(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    val toggleHaptic = rememberToggleHaptic()
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressScale = rememberPressScale(interactionSource)
+
+    GlassSurface(
+        shape = CircleShape,
+        modifier = Modifier
+            .size(40.dp)
+            .scale(pressScale)
+            .clickable(interactionSource = interactionSource, indication = null) {
+                val next = !enabled
+                toggleHaptic(next)
+                onToggle(next)
+            }
+            .semantics {
+                contentDescription = if (enabled) {
+                    "Glass effects on, tap to turn off for better performance"
+                } else {
+                    "Glass effects off, tap to turn on"
+                }
+            }
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = "✦", // U+2726 BLACK FOUR POINTED STAR
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.alpha(if (enabled) 1f else 0.4f)
+            )
+        }
+    }
+}
+
+/**
+ * Small circular glass button, trailing [GlassEffectsToggleButton] in the
+ * header — replaces the old three-way Appearance pill. Cycles ThemeMode in the
  * order System -&gt; Dark -&gt; Light -&gt; System on tap, morphing its glyph with
  * AnimatedContent. onTunablesChange already handles persistence and the
  * window-background flash fix on any themeMode change, so this only needs
