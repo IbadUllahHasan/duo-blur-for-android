@@ -6,9 +6,16 @@ the top-level [README](../README.md) instead.
 ## How releases work
 
 Pushing a tag matching `v*.*.*` (e.g. `v1.0.0`) runs
-`.github/workflows/release.yml`, which builds an APK and publishes it to this
-repo's Releases page automatically. The workflow can also be started by hand
-from **Actions → "Release" → "Run workflow"**.
+`.github/workflows/release.yml`, which builds an APK named
+`DuoBlur-<tag>.apk` and publishes it to this repo's Releases page
+automatically. The workflow can also be started by hand from **Actions →
+"Release" → "Run workflow"**.
+
+From v1.3.0 the application id is `app.duoblur`. A phone that still has
+v1.2.0 or earlier (`com.ibad.foldecho`) keeps that install beside the new
+one; it does not upgrade in place. The existing release signing key is
+unchanged, and so is the keystore alias already stored in the repository
+secrets.
 
 The APK's `versionName` and `versionCode` are derived from the tag itself
 (e.g. `v1.2.3` → versionName `1.2.3`, versionCode `10203`) — see
