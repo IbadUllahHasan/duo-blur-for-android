@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import android.Manifest
 import android.app.Activity
@@ -120,9 +120,9 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode == Activity.RESULT_OK && data != null) {
                 ContextCompat.startForegroundService(
                     this,
-                    Intent(this, FoldEchoService::class.java).apply {
-                        putExtra(FoldEchoService.EXTRA_RESULT_CODE, result.resultCode)
-                        putExtra(FoldEchoService.EXTRA_RESULT_DATA, data)
+                    Intent(this, DuoBlurService::class.java).apply {
+                        putExtra(DuoBlurService.EXTRA_RESULT_CODE, result.resultCode)
+                        putExtra(DuoBlurService.EXTRA_RESULT_DATA, data)
                     }
                 )
             }
@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         projectionManager = getSystemService(MediaProjectionManager::class.java)
         haptics = HapticsController(this)
-        tunables = FoldEchoSettings.load(this)
+        tunables = DuoBlurSettings.load(this)
         applyWindowBackground(tunables.themeMode)
         retireWindowBackgroundAfterFirstFrame()
         // Both bars transparent, so the mesh gradient is what shows behind the
@@ -175,10 +175,10 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
 
-            MaterialTheme(colorScheme = if (darkTheme) FoldEchoDarkColors else FoldEchoLightColors) {
-                val running by FoldEchoState.running.collectAsState()
-                val effectActive by FoldEchoState.effectActive.collectAsState()
-                val deviation by FoldEchoState.deviationDeg.collectAsState()
+            MaterialTheme(colorScheme = if (darkTheme) DuoBlurDarkColors else DuoBlurLightColors) {
+                val running by DuoBlurState.running.collectAsState()
+                val effectActive by DuoBlurState.effectActive.collectAsState()
+                val deviation by DuoBlurState.deviationDeg.collectAsState()
 
                 CompositionLocalProvider(
                     LocalHaptics provides haptics,
@@ -224,8 +224,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleService() {
-        if (FoldEchoState.running.value) {
-            startService(Intent(this, FoldEchoService::class.java).setAction(FoldEchoService.ACTION_STOP))
+        if (DuoBlurState.running.value) {
+            startService(Intent(this, DuoBlurService::class.java).setAction(DuoBlurService.ACTION_STOP))
             return
         }
         if (!Settings.canDrawOverlays(this)) {
@@ -236,7 +236,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recalibrate() {
-        startService(Intent(this, FoldEchoService::class.java).setAction(FoldEchoService.ACTION_RECALIBRATE))
+        startService(Intent(this, DuoBlurService::class.java).setAction(DuoBlurService.ACTION_RECALIBRATE))
     }
 
     private fun requestOverlayPermission() {
@@ -248,7 +248,7 @@ class MainActivity : ComponentActivity() {
     private fun updateTunables(updated: Tunables) {
         val themeChanged = updated.themeMode != tunables.themeMode
         tunables = updated
-        FoldEchoSettings.save(this, updated)
+        DuoBlurSettings.save(this, updated)
         if (themeChanged) applyWindowBackground(updated.themeMode)
     }
 
@@ -311,7 +311,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resetTunables() {
-        tunables = FoldEchoSettings.reset(this)
+        tunables = DuoBlurSettings.reset(this)
         applyWindowBackground(tunables.themeMode)
     }
 }
@@ -396,7 +396,7 @@ private fun GlassScene(glassEnabled: Boolean, content: @Composable (ScrollState)
  * equivalent and aren't read anywhere in this app today (confirmed by grep) —
  * reasonable Material3-convention values, low risk either way.
  */
-private val FoldEchoDarkColors = darkColorScheme(
+private val DuoBlurDarkColors = darkColorScheme(
     primary = Color(0xFF0A84FF),              // systemBlue dark
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFF003C6B),
@@ -415,8 +415,8 @@ private val FoldEchoDarkColors = darkColorScheme(
     outlineVariant = Color(0xFF545458).copy(alpha = 0.65f) // Apple separator dark
 )
 
-/** Light counterpart, same Apple remap — see [FoldEchoDarkColors]'s doc comment for sourcing. */
-private val FoldEchoLightColors = lightColorScheme(
+/** Light counterpart, same Apple remap — see [DuoBlurDarkColors]'s doc comment for sourcing. */
+private val DuoBlurLightColors = lightColorScheme(
     primary = Color(0xFF007AFF),              // systemBlue light — live-verified
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFD6E8FF),
@@ -1327,7 +1327,7 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
  * `onSurface` specifically so selected/unselected weren't two shades of the
  * same colour. That works in light mode by coincidence: `onPrimary` (the
  * selected colour, white) and `onSurface` (the unselected colour, black) are
- * genuinely different there. In dark mode they are not — `FoldEchoDarkColors`
+ * genuinely different there. In dark mode they are not — `DuoBlurDarkColors`
  * sets both `onPrimary` and `onSurface` to the same pure `#FFFFFFFF`. Once
  * the pill's own contrast against the glass card was the only thing carrying
  * the distinction, and font-weight alone didn't read as strongly as intended,

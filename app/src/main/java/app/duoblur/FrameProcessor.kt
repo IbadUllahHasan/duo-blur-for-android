@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import kotlin.math.abs
 

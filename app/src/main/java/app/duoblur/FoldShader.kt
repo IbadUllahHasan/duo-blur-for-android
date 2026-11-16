@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import android.content.Context
 import android.graphics.RenderEffect

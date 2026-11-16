@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import android.app.Activity
 import android.app.Notification
@@ -29,9 +29,9 @@ import kotlin.math.abs
  * gesture only asks for a frame and shows/hides the overlay. All sensor and
  * capture work happens on [bg]; the main thread is touched only to move views.
  */
-class FoldEchoService : Service(), TiltTracker.Listener {
+class DuoBlurService : Service(), TiltTracker.Listener {
 
-    private val bgThread = HandlerThread("FoldEchoCapture").apply { start() }
+    private val bgThread = HandlerThread("DuoBlurCapture").apply { start() }
     private val bg = Handler(bgThread.looper)
     private val main = Handler(Looper.getMainLooper())
 
@@ -43,7 +43,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
 
     @Volatile private var tunables = Tunables()
     private val tunablesChanged = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-        tunables = FoldEchoSettings.load(this)
+        tunables = DuoBlurSettings.load(this)
     }
 
     // Owned by the bg thread.
@@ -56,8 +56,8 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         super.onCreate()
         overlay = OverlayController(this)
         haptics = HapticsController(this)
-        tunables = FoldEchoSettings.load(this)
-        FoldEchoSettings.prefs(this).registerOnSharedPreferenceChangeListener(tunablesChanged)
+        tunables = DuoBlurSettings.load(this)
+        DuoBlurSettings.prefs(this).registerOnSharedPreferenceChangeListener(tunablesChanged)
     }
 
     @Suppress("DEPRECATION")
@@ -110,7 +110,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
             tiltTracker = TiltTracker(getSystemService(SensorManager::class.java), bg, this)
                 .apply { start() }
         }
-        FoldEchoState.running.value = true
+        DuoBlurState.running.value = true
 
         // Consent can't survive a restart, so there's nothing to be sticky about.
         return START_NOT_STICKY
@@ -118,11 +118,11 @@ class FoldEchoService : Service(), TiltTracker.Listener {
 
     override fun onTilt(deviationDeg: Float, tiltUpDeg: Float, tiltRightDeg: Float) {
         val current = tunables
-        if (abs(deviationDeg - FoldEchoState.deviationDeg.value) > DEVIATION_REPORT_STEP) {
-            FoldEchoState.deviationDeg.value = deviationDeg
+        if (abs(deviationDeg - DuoBlurState.deviationDeg.value) > DEVIATION_REPORT_STEP) {
+            DuoBlurState.deviationDeg.value = deviationDeg
         }
-        FoldEchoState.tiltUpDeg.value = tiltUpDeg
-        FoldEchoState.tiltRightDeg.value = tiltRightDeg
+        DuoBlurState.tiltUpDeg.value = tiltUpDeg
+        DuoBlurState.tiltRightDeg.value = tiltRightDeg
 
         if (suppressedUntilNeutral) {
             if (deviationDeg < current.releaseDeg) suppressedUntilNeutral = false
@@ -161,7 +161,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         active = true
         activeSince = SystemClock.elapsedRealtime()
         frameInFlight = true
-        FoldEchoState.effectActive.value = true
+        DuoBlurState.effectActive.value = true
 
         val current = tunables
         if (current.blurHapticsEnabled && current.blurHapticsEngageEnabled) {
@@ -182,7 +182,7 @@ class FoldEchoService : Service(), TiltTracker.Listener {
 
     private fun endGesture(firedByTimeout: Boolean = false) {
         active = false
-        FoldEchoState.effectActive.value = false
+        DuoBlurState.effectActive.value = false
         main.post { overlay.hide() }
 
         val current = tunables
@@ -203,14 +203,14 @@ class FoldEchoService : Service(), TiltTracker.Listener {
     }
 
     override fun onDestroy() {
-        FoldEchoSettings.prefs(this).unregisterOnSharedPreferenceChangeListener(tunablesChanged)
+        DuoBlurSettings.prefs(this).unregisterOnSharedPreferenceChangeListener(tunablesChanged)
         tiltTracker?.stop()
         overlay.hide()
         projection?.stop()
         projection = null
         bg.post { capture?.release() }
         bgThread.quitSafely()
-        FoldEchoState.reset()
+        DuoBlurState.reset()
         super.onDestroy()
     }
 
@@ -231,12 +231,12 @@ class FoldEchoService : Service(), TiltTracker.Listener {
         )
         val recalibrate = PendingIntent.getService(
             this, 1,
-            Intent(this, FoldEchoService::class.java).setAction(ACTION_RECALIBRATE),
+            Intent(this, DuoBlurService::class.java).setAction(ACTION_RECALIBRATE),
             PendingIntent.FLAG_IMMUTABLE
         )
         val stop = PendingIntent.getService(
             this, 2,
-            Intent(this, FoldEchoService::class.java).setAction(ACTION_STOP),
+            Intent(this, DuoBlurService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -252,12 +252,12 @@ class FoldEchoService : Service(), TiltTracker.Listener {
     }
 
     companion object {
-        const val ACTION_STOP = "com.ibad.foldecho.action.STOP"
-        const val ACTION_RECALIBRATE = "com.ibad.foldecho.action.RECALIBRATE"
-        const val EXTRA_RESULT_CODE = "com.ibad.foldecho.extra.RESULT_CODE"
-        const val EXTRA_RESULT_DATA = "com.ibad.foldecho.extra.RESULT_DATA"
+        const val ACTION_STOP = "app.duoblur.action.STOP"
+        const val ACTION_RECALIBRATE = "app.duoblur.action.RECALIBRATE"
+        const val EXTRA_RESULT_CODE = "app.duoblur.extra.RESULT_CODE"
+        const val EXTRA_RESULT_DATA = "app.duoblur.extra.RESULT_DATA"
 
-        private const val CHANNEL_ID = "foldecho_service"
+        private const val CHANNEL_ID = "duoblur_service"
         private const val NOTIFICATION_ID = 42
         private const val MAX_ACTIVE_MS = 8_000L
         private const val DEVIATION_REPORT_STEP = 0.2f

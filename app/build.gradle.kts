@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.ibad.foldecho"
+    namespace = "app.duoblur"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ibad.foldecho"
+        applicationId = "app.duoblur"
         minSdk = 31
         targetSdk = 34
         // The release workflow derives these from the pushed tag (so a tag and

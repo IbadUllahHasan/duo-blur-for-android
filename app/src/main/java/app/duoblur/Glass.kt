@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring

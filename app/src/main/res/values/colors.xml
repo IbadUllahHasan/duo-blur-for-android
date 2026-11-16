@@ -14,6 +14,6 @@
 
     <!-- What the manifest theme uses before onCreate runs: follows the system,
          which is correct for ThemeMode.SYSTEM and corrected in onCreate otherwise.
-         Matches FoldEchoLightColors.background in MainActivity. -->
+         Matches DuoBlurLightColors.background in MainActivity. -->
     <color name="window_background">#FFFBF8F3</color>
 </resources>
