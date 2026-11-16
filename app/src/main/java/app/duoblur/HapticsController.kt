@@ -16,7 +16,7 @@ import android.os.VibratorManager
  * View.performHapticFeedback(HapticFeedbackConstants.TOGGLE_ON/TOGGLE_OFF)
  * instead, so they get the OEM's own tuned toggle haptic (Samsung's
  * vibration HAL, for one) rather than a generic primitive we picked. See
- * MainActivity.rememberToggleHaptic. [toggle] below is only the pre-34
+ * ui.rememberToggleHaptic. [toggle] below is only the pre-34
  * fallback, for devices where those constants don't exist yet.
  */
 class HapticsController(context: Context) {

@@ -48,6 +48,7 @@ import com.kashif_e.backdrop.effects.lens
 import com.kashif_e.backdrop.effects.vibrancy
 import com.kashif_e.backdrop.highlight.Highlight
 import com.kashif_e.backdrop.highlight.HighlightStyle
+import app.duoblur.ui.rememberToggleHaptic
 
 /**
  * Corner radius is context-aware, not one flat constant: bigger surfaces read
