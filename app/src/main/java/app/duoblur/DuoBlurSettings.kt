@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import android.content.Context
 import android.content.SharedPreferences
@@ -109,8 +109,8 @@ data class Tunables(
     }
 }
 
-object FoldEchoSettings {
-    private const val PREFS = "foldecho_tunables"
+object DuoBlurSettings {
+    private const val PREFS = "duoblur_tunables"
     private const val KEY_ACTIVATE = "activate_deg"
     private const val KEY_FULL_TILT = "full_tilt_deg"
     private const val KEY_PERSPECTIVE = "perspective_strength"
@@ -262,7 +262,7 @@ object FoldEchoSettings {
 
     /**
      * DisplayManager (not Context.getDisplay()) because this runs from
-     * FoldEchoService as well as MainActivity — a plain Service context isn't
+     * DuoBlurService as well as MainActivity — a plain Service context isn't
      * associated with a Display, and Context.getDisplay() throws on one.
      */
     private fun defaultCornerRadiusDp(context: Context): Float {

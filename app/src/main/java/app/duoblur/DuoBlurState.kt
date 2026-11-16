@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * the only writer; the UI reads it so it can't drift out of sync when the
  * service stops on its own (projection revoked from the system UI, say).
  */
-object FoldEchoState {
+object DuoBlurState {
     val running = MutableStateFlow(false)
     val effectActive = MutableStateFlow(false)
     val deviationDeg = MutableStateFlow(0f)

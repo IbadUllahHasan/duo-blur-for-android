@@ -1,4 +1,4 @@
-package com.ibad.foldecho
+package app.duoblur
 
 import android.content.Context
 import android.graphics.BlendMode
@@ -412,7 +412,7 @@ class OverlayController(private val context: Context) {
 
     private companion object {
         const val MM_PER_INCH = 25.4f
-        const val TAG = "FoldEchoOverlay"
+        const val TAG = "DuoBlurOverlay"
         val DEFAULT_TUNABLES = Tunables()
     }
 }
