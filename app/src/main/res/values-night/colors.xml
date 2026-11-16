@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches DuoBlurDarkColors.background in MainActivity, unified with
+    <!-- Matches DuoBlurDarkColors.background in ui/Theme.kt, unified with
          GlassPalette.backgroundBase (Glass.kt). -->
     <color name="window_background">#FF05060A</color>
 </resources>
