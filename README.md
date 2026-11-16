@@ -75,17 +75,17 @@ phone.
 repo's [Releases page](../../releases) and sideload it: tapping the
 downloaded file prompts for the "install unknown apps" permission, allow
 it, then install. Release builds are signed with a stable key (see
-[docs/RELEASE.md](docs/RELEASE.md) for the maintainer side). From v1.3.0
-on, the application id is `app.duoblur`, so a newer release in that line
-installs over an older one. v1.2.0 and earlier were `com.ibad.foldecho`
-and stay on the device as a separate app; uninstall that copy if you only
-want this one.
+[docs/RELEASE.md](docs/RELEASE.md) for the maintainer side). The application
+id is `app.duoflow`, so a newer release with that id installs over an older
+one. v1.3.0 was `app.duoblur`, and v1.2.0 and earlier were
+`com.ibad.foldecho`. Those stay on the device as separate apps; uninstall
+them if you only want this one.
 
 **Option B — Build from source via GitHub Actions** (no local Android
 Studio needed):
 1. **Actions** tab → "Build Debug APK" → "Run workflow" (or push to `main`,
    which triggers it automatically).
-2. Once it finishes, open the run and download `DuoBlur.apk` from
+2. Once it finishes, open the run and download `DuoFlow.apk` from
    **Artifacts**.
 3. Sideload it the same way as Option A.
 
@@ -168,9 +168,10 @@ that were investigated and can't be done live in
 - **"App not installed" when trying to update.** The previous APK was signed
   with a different key than this one. Uninstall the old one and install the
   new one fresh — this only happens when sideloading from a different source.
-- **Two copies after installing v1.3.0.** Expected if v1.2.0 or earlier is
-  still installed. That line used application id `com.ibad.foldecho`; v1.3.0
-  and later use `app.duoblur`. Uninstall the old copy if you only want one.
+- **More than one copy of the app.** Expected if an older install is still
+  there. v1.2.0 and earlier used `com.ibad.foldecho`, and v1.3.0 used
+  `app.duoblur`. Current builds use `app.duoflow`. Uninstall the old copies
+  if you only want one.
 
 If something's broken that isn't on this list, please
 [open an issue](../../issues) — there's a

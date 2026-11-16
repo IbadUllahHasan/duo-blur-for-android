@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.MaterialTheme

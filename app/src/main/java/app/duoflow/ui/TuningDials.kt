@@ -1,6 +1,6 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
-import app.duoblur.Tunables
+import app.duoflow.Tunables
 
 private fun lerp(a: Float, b: Float, t: Float) = a + (b - a) * t.coerceIn(0f, 1f)
 private fun inverseLerp(a: Float, b: Float, v: Float) = ((v - a) / (b - a)).coerceIn(0f, 1f)

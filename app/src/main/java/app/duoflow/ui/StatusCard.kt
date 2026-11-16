@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -25,10 +25,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import app.duoblur.GlassRadii
-import app.duoblur.GlassSurface
-import app.duoblur.GlassSwitch
-import app.duoblur.Tunables
+import app.duoflow.GlassRadii
+import app.duoflow.GlassSurface
+import app.duoflow.GlassSwitch
+import app.duoflow.Tunables
 import kotlin.math.roundToInt
 
 @Composable

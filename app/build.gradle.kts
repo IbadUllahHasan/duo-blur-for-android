@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "app.duoblur"
+    namespace = "app.duoflow"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "app.duoblur"
+        applicationId = "app.duoflow"
         minSdk = 31
         targetSdk = 34
         // The release workflow derives these from the pushed tag (so a tag and

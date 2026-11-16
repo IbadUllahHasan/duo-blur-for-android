@@ -1,4 +1,4 @@
-package app.duoblur
+package app.duoflow
 
 import android.content.Context
 import android.graphics.BlendMode
@@ -412,7 +412,7 @@ class OverlayController(private val context: Context) {
 
     private companion object {
         const val MM_PER_INCH = 25.4f
-        const val TAG = "DuoBlurOverlay"
+        const val TAG = "DuoFlowOverlay"
         val DEFAULT_TUNABLES = Tunables()
     }
 }

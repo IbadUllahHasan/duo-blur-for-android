@@ -37,7 +37,7 @@ If it happens every time, say so. If it's flaky, say so.
 Screenshots or a screen recording help a lot. If it's reproducible,
 logcat output between the tap and the symptom is gold:
 
-  adb logcat -d -s DuoBlurOverlay:* DuoBlurService:* FoldShader:* AndroidRuntime:E
+  adb logcat -d -s DuoFlowOverlay:* DuoFlowService:* FoldShader:* AndroidRuntime:E
 -->
 
 **Which renderer**

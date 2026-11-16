@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -23,9 +23,9 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import app.duoblur.GlassSurface
-import app.duoblur.ThemeMode
-import app.duoblur.rememberPressScale
+import app.duoflow.GlassSurface
+import app.duoflow.ThemeMode
+import app.duoflow.rememberPressScale
 
 private fun nextThemeMode(mode: ThemeMode): ThemeMode = when (mode) {
     ThemeMode.SYSTEM -> ThemeMode.DARK
