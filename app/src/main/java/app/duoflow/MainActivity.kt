@@ -1,4 +1,4 @@
-package app.duoblur
+package app.duoflow
 
 import android.Manifest
 import android.app.Activity
@@ -27,12 +27,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import app.duoblur.ui.ControlPanel
-import app.duoblur.ui.DuoBlurDarkColors
-import app.duoblur.ui.DuoBlurLightColors
-import app.duoblur.ui.GlassScene
-import app.duoblur.ui.LocalHaptics
-import app.duoblur.ui.LocalUiHapticsEnabled
+import app.duoflow.ui.ControlPanel
+import app.duoflow.ui.DuoFlowDarkColors
+import app.duoflow.ui.DuoFlowLightColors
+import app.duoflow.ui.GlassScene
+import app.duoflow.ui.LocalHaptics
+import app.duoflow.ui.LocalUiHapticsEnabled
 
 /**
  * Control panel for the system-wide effect: turn it on, see what the sensor is
@@ -54,9 +54,9 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode == Activity.RESULT_OK && data != null) {
                 ContextCompat.startForegroundService(
                     this,
-                    Intent(this, DuoBlurService::class.java).apply {
-                        putExtra(DuoBlurService.EXTRA_RESULT_CODE, result.resultCode)
-                        putExtra(DuoBlurService.EXTRA_RESULT_DATA, data)
+                    Intent(this, DuoFlowService::class.java).apply {
+                        putExtra(DuoFlowService.EXTRA_RESULT_CODE, result.resultCode)
+                        putExtra(DuoFlowService.EXTRA_RESULT_DATA, data)
                     }
                 )
             }
@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         projectionManager = getSystemService(MediaProjectionManager::class.java)
         haptics = HapticsController(this)
-        tunables = DuoBlurSettings.load(this)
+        tunables = DuoFlowSettings.load(this)
         applyWindowBackground(tunables.themeMode)
         retireWindowBackgroundAfterFirstFrame()
         // Both bars transparent, so the mesh gradient is what shows behind the
@@ -109,10 +109,10 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
 
-            MaterialTheme(colorScheme = if (darkTheme) DuoBlurDarkColors else DuoBlurLightColors) {
-                val running by DuoBlurState.running.collectAsState()
-                val effectActive by DuoBlurState.effectActive.collectAsState()
-                val deviation by DuoBlurState.deviationDeg.collectAsState()
+            MaterialTheme(colorScheme = if (darkTheme) DuoFlowDarkColors else DuoFlowLightColors) {
+                val running by DuoFlowState.running.collectAsState()
+                val effectActive by DuoFlowState.effectActive.collectAsState()
+                val deviation by DuoFlowState.deviationDeg.collectAsState()
 
                 CompositionLocalProvider(
                     LocalHaptics provides haptics,
@@ -158,8 +158,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun toggleService() {
-        if (DuoBlurState.running.value) {
-            startService(Intent(this, DuoBlurService::class.java).setAction(DuoBlurService.ACTION_STOP))
+        if (DuoFlowState.running.value) {
+            startService(Intent(this, DuoFlowService::class.java).setAction(DuoFlowService.ACTION_STOP))
             return
         }
         if (!Settings.canDrawOverlays(this)) {
@@ -170,7 +170,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun recalibrate() {
-        startService(Intent(this, DuoBlurService::class.java).setAction(DuoBlurService.ACTION_RECALIBRATE))
+        startService(Intent(this, DuoFlowService::class.java).setAction(DuoFlowService.ACTION_RECALIBRATE))
     }
 
     private fun requestOverlayPermission() {
@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
     private fun updateTunables(updated: Tunables) {
         val themeChanged = updated.themeMode != tunables.themeMode
         tunables = updated
-        DuoBlurSettings.save(this, updated)
+        DuoFlowSettings.save(this, updated)
         if (themeChanged) applyWindowBackground(updated.themeMode)
     }
 
@@ -245,7 +245,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun resetTunables() {
-        tunables = DuoBlurSettings.reset(this)
+        tunables = DuoFlowSettings.reset(this)
         applyWindowBackground(tunables.themeMode)
     }
 }

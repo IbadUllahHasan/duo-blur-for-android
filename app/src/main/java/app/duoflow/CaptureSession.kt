@@ -1,4 +1,4 @@
-package app.duoblur
+package app.duoflow
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -47,7 +47,7 @@ class CaptureSession(
         readDisplaySize()
         imageReader = newImageReader()
         virtualDisplay = mediaProjection.createVirtualDisplay(
-            "DuoBlurCapture",
+            "DuoFlowCapture",
             width, height, densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             null, // parked until a gesture asks for a frame

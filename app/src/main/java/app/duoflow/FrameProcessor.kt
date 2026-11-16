@@ -1,4 +1,4 @@
-package app.duoblur
+package app.duoflow
 
 import kotlin.math.abs
 

@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import android.os.Build
 import androidx.compose.foundation.ScrollState
@@ -25,7 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import app.duoblur.Tunables
+import app.duoflow.Tunables
 import kotlin.math.roundToInt
 
 @Composable

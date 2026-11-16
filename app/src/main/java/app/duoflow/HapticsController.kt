@@ -1,4 +1,4 @@
-package app.duoblur
+package app.duoflow
 
 import android.content.Context
 import android.os.VibrationEffect

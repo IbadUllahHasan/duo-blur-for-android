@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import android.os.Build
 import android.view.HapticFeedbackConstants
@@ -8,7 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
-import app.duoblur.HapticsController
+import app.duoflow.HapticsController
 
 /**
  * Dark palette, remapped to Apple's iOS system-color values. `systemBlue` is
@@ -26,7 +26,7 @@ import app.duoblur.HapticsController
  * equivalent and aren't read anywhere in this app today (confirmed by grep) —
  * reasonable Material3-convention values, low risk either way.
  */
-internal val DuoBlurDarkColors = darkColorScheme(
+internal val DuoFlowDarkColors = darkColorScheme(
     primary = Color(0xFF0A84FF),              // systemBlue dark
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFF003C6B),
@@ -45,8 +45,8 @@ internal val DuoBlurDarkColors = darkColorScheme(
     outlineVariant = Color(0xFF545458).copy(alpha = 0.65f) // Apple separator dark
 )
 
-/** Light counterpart, same Apple remap — see [DuoBlurDarkColors]'s doc comment for sourcing. */
-internal val DuoBlurLightColors = lightColorScheme(
+/** Light counterpart, same Apple remap — see [DuoFlowDarkColors]'s doc comment for sourcing. */
+internal val DuoFlowLightColors = lightColorScheme(
     primary = Color(0xFF007AFF),              // systemBlue light — live-verified
     onPrimary = Color(0xFFFFFFFF),
     primaryContainer = Color(0xFFD6E8FF),

@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -49,11 +49,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import app.duoblur.GlassRadii
-import app.duoblur.GlassSlider
-import app.duoblur.GlassSurface
-import app.duoblur.GlassSwitch
-import app.duoblur.rememberPressScale
+import app.duoflow.GlassRadii
+import app.duoflow.GlassSlider
+import app.duoflow.GlassSurface
+import app.duoflow.GlassSwitch
+import app.duoflow.rememberPressScale
 
 /** The glass shell every tuning section shares — real refraction of the gradient behind it, not a flat translucent color. */
 @Composable
@@ -287,7 +287,7 @@ private fun ModeSelectorContent(usingFold: Boolean, onSelect: (Boolean) -> Unit)
  * `onSurface` specifically so selected/unselected weren't two shades of the
  * same colour. That works in light mode by coincidence: `onPrimary` (the
  * selected colour, white) and `onSurface` (the unselected colour, black) are
- * genuinely different there. In dark mode they are not — `DuoBlurDarkColors`
+ * genuinely different there. In dark mode they are not — `DuoFlowDarkColors`
  * sets both `onPrimary` and `onSurface` to the same pure `#FFFFFFFF`. Once
  * the pill's own contrast against the glass card was the only thing carrying
  * the distinction, and font-weight alone didn't read as strongly as intended,

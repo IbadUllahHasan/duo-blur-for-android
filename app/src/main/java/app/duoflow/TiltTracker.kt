@@ -1,4 +1,4 @@
-package app.duoblur
+package app.duoflow
 
 import android.hardware.Sensor
 import android.hardware.SensorEvent

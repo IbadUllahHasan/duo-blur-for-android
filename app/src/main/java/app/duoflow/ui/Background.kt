@@ -1,4 +1,4 @@
-package app.duoblur.ui
+package app.duoflow.ui
 
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
@@ -7,8 +7,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
-import app.duoblur.LocalBackdrop
-import app.duoblur.MeshGradientBackground
+import app.duoflow.LocalBackdrop
+import app.duoflow.MeshGradientBackground
 import com.kashif_e.backdrop.backdrops.layerBackdrop
 import com.kashif_e.backdrop.backdrops.rememberLayerBackdrop
 
